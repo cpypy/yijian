@@ -564,3 +564,27 @@ main.library { flex-direction: row; }
   outline: none;
 }
 .taginput:focus { border-color: #b9cbc4; }
+
+/* ---------- 全文命中 ---------- */
+.hits {
+  max-height: 220px;
+  overflow: auto;
+  background: #fdfcf8;
+  border-bottom: 1px solid var(--line);
+}
+.hitshead { padding: 6px 16px; font-size: 11px; color: var(--muted); }
+.hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+.hit:hover { background: #f6f2e8; }
+.hitid { font-size: 11px; color: var(--muted); font-family: var(--serif); }
+.hitsnip { font-size: 12px; color: #4a463e; line-height: 1.5; }

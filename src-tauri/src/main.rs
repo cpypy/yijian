@@ -332,6 +332,68 @@ fn discover(app: AppHandle) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+#[derive(serde::Serialize)]
+struct TextHit {
+    arxiv_id: String,
+    seq: u32,
+    kind: String,
+    snippet: String,
+}
+
+#[tauri::command]
+fn search_text(docs: Vec<(String, String)>, query: String) -> Result<Vec<TextHit>, String> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut hits: Vec<TextHit> = Vec::new();
+    for (arxiv_id, path) in docs.iter().take(500) {
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let data: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let Some(chunks) = data.get("chunks").and_then(|c| c.as_array()) else {
+            continue;
+        };
+
+        for chunk in chunks {
+            let en = chunk.get("en").and_then(|v| v.as_str()).unwrap_or("");
+            let zh = chunk.get("zh").and_then(|v| v.as_str()).unwrap_or("");
+            let hay = format!("{en} {zh}").to_lowercase();
+            let Some(pos) = hay.find(&needle) else { continue };
+
+            let mut start = pos.saturating_sub(40);
+            while start > 0 && !hay.is_char_boundary(start) {
+                start -= 1;
+            }
+            let mut end = (pos + needle.len() + 60).min(hay.len());
+            while end < hay.len() && !hay.is_char_boundary(end) {
+                end += 1;
+            }
+
+            hits.push(TextHit {
+                arxiv_id: arxiv_id.clone(),
+                seq: chunk.get("seq").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                kind: chunk
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                snippet: hay[start..end].replace('\n', " "),
+            });
+            if hits.len() >= 200 {
+                return Ok(hits);
+            }
+        }
+    }
+    Ok(hits)
+}
+
 #[tauri::command]
 fn read_segments(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
@@ -389,7 +451,8 @@ fn main() {
             discover,
             clear_queue,
             load_collections,
-            save_collections
+            save_collections,
+            search_text
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");

@@ -84,6 +84,8 @@
   let activeTag = "";
   let newCollectionName = "";
   let query = "";
+  let textHits: { arxiv_id: string; seq: number; kind: string; snippet: string }[] = [];
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
   let currentDocId = "";
   let currentSegmentsPath = "";
   let readProgress = 0;
@@ -611,6 +613,31 @@
     persistLibrary();
   }
 
+  function onQueryInput() {
+    if (searchTimer) clearTimeout(searchTimer);
+    const q = query.trim();
+    if (q.length < 2) {
+      textHits = [];
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      const docs = library.filter((d) => d.segments).map((d) => [d.arxivId, d.segments]);
+      try {
+        textHits = await invoke("search_text", { docs, query: q });
+      } catch {
+        textHits = [];
+      }
+    }, 450);
+  }
+
+  async function openDocAt(d: Doc, seq: number) {
+    await openDoc(d);
+    await tick();
+    const target = docEl?.querySelector<HTMLElement>(`[data-seq="${seq}"]`);
+    if (target) target.scrollIntoView({ block: "center" });
+    selected = seq;
+  }
+
   function setTags(doc: Doc, raw: string) {
     const tags = raw
       .split(",")
@@ -723,7 +750,12 @@
 
     <section class="libmain">
       <div class="libbar">
-        <input class="search" bind:value={query} placeholder="搜索 arXiv ID…" />
+        <input
+          class="search"
+          bind:value={query}
+          on:input={onQueryInput}
+          placeholder="搜索标题 / 作者 / 全文…"
+        />
         {#if tagList.length}
           <div class="tagbar">
             {#each tagList as t (t.name)}
@@ -740,6 +772,24 @@
         <span class="grow"></span>
         <span class="rmeta">{visibleDocs.length} 篇</span>
       </div>
+      {#if textHits.length}
+        <div class="hits">
+          <div class="hitshead">全文命中 {textHits.length} 段</div>
+          {#each textHits as h (h.arxiv_id + "-" + h.seq)}
+            <button
+              class="hit"
+              on:click={() => {
+                const d = library.find((x) => x.arxivId === h.arxiv_id);
+                if (d) openDocAt(d, h.seq);
+              }}
+            >
+              <span class="hitid">{h.arxiv_id} · 第 {h.seq} 段</span>
+              <span class="hitsnip">…{h.snippet}…</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
       <div class="liblist">
         {#if !visibleDocs.length}
           <div class="empty">还没有论文。回工作台输入 arXiv ID 跑一篇，会自动收进这里。</div>
