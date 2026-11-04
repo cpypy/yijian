@@ -21,8 +21,10 @@
     segments: string;
     progress: number;
     lastSeq: number;
-    collection: string;
+    collection?: string;
+    collectionId?: string;
   };
+  type Collection = { id: string; name: string; parentId: string | null };
 
   let arxivId = "1706.03762";
   let running = false;
@@ -71,6 +73,9 @@
   let activeRef = "";
 
   let library: Doc[] = [];
+  let collections: Collection[] = [];
+  let activeCollection = "";
+  let newCollectionName = "";
   let query = "";
   let currentDocId = "";
   let currentSegmentsPath = "";
@@ -88,16 +93,58 @@
     done: "完成",
   };
 
-  $: visibleDocs = library
-    .filter((d) => {
-      const q = query.trim().toLowerCase();
-      if (!q) return true;
-      return (
-        d.arxivId.toLowerCase().includes(q) ||
-        (d.collection || "").toLowerCase().includes(q)
-      );
-    })
-    .sort((a, b) => b.addedAt - a.addedAt);
+  function buildTree(items: Collection[]): { id: string; name: string; depth: number }[] {
+    const out: { id: string; name: string; depth: number }[] = [];
+    const byParent = new Map<string, Collection[]>();
+    for (const c of items) {
+      const key = c.parentId ?? "";
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key)!.push(c);
+    }
+    const walk = (parent: string, depth: number) => {
+      const kids = (byParent.get(parent) ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
+      for (const c of kids) {
+        out.push({ id: c.id, name: c.name, depth });
+        walk(c.id, depth + 1);
+      }
+    };
+    walk("", 0);
+    return out;
+  }
+
+  function descendantsOf(cols: Collection[], id: string): Set<string> {
+    const set = new Set<string>([id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const c of cols) {
+        if (c.parentId && set.has(c.parentId) && !set.has(c.id)) {
+          set.add(c.id);
+          changed = true;
+        }
+      }
+    }
+    return set;
+  }
+
+  function filterDocs(docs: Doc[], cols: Collection[], active: string, q: string): Doc[] {
+    const query = q.trim().toLowerCase();
+    const scope = active && active !== "none" ? descendantsOf(cols, active) : null;
+    return docs
+      .filter((d) => {
+        if (active === "none") {
+          if (d.collectionId) return false;
+        } else if (scope) {
+          if (!scope.has(d.collectionId ?? "")) return false;
+        }
+        if (!query) return true;
+        return d.arxivId.toLowerCase().includes(query);
+      })
+      .sort((a, b) => b.addedAt - a.addedAt);
+  }
+
+  $: tree = buildTree(collections);
+  $: visibleDocs = filterDocs(library, collections, activeCollection, query);
 
   function esc(s: string): string {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -340,7 +387,7 @@
 
   onMount(() => {
     loadSettings();
-    loadLibrary();
+    loadLibrary().then(loadCollections);
 
     const un1 = listen<Record<string, unknown>>("engine-event", async (e) => {
       const p = e.payload as any;
@@ -466,8 +513,66 @@
     mode = mode === next ? "both" : next;
   }
 
-  function setCollection(doc: Doc, value: string) {
-    library = library.map((d) => (d.id === doc.id ? { ...d, collection: value } : d));
+  function saveCollections() {
+    invoke("save_collections", { text: JSON.stringify(collections) }).catch(() => {});
+  }
+
+  async function loadCollections() {
+    try {
+      const raw = await invoke<string>("load_collections");
+      const items = JSON.parse(raw || "[]");
+      if (Array.isArray(items)) collections = items;
+    } catch {
+      collections = [];
+    }
+    migrateLegacyCollections();
+  }
+
+  /** 老数据里 documents 存的是分类名字符串，这里迁移成集合 ID */
+  function migrateLegacyCollections() {
+    let changedDocs = false;
+    let changedCols = false;
+    for (const d of library) {
+      const legacy = (d.collection ?? "").trim();
+      if (legacy && !d.collectionId) {
+        let target = collections.find((c) => !c.parentId && c.name === legacy);
+        if (!target) {
+          target = { id: crypto.randomUUID(), name: legacy, parentId: null };
+          collections = [...collections, target];
+          changedCols = true;
+        }
+        d.collectionId = target.id;
+        changedDocs = true;
+      }
+    }
+    if (changedDocs) persistLibrary();
+    if (changedCols) saveCollections();
+  }
+
+  function addCollection() {
+    const name = newCollectionName.trim();
+    if (!name) return;
+    const parentId = activeCollection && activeCollection !== "none" ? activeCollection : null;
+    collections = [...collections, { id: crypto.randomUUID(), name, parentId }];
+    newCollectionName = "";
+    saveCollections();
+  }
+
+  function deleteCollection(c: Collection) {
+    const parent = c.parentId;
+    collections = collections
+      .filter((x) => x.id !== c.id)
+      .map((x) => (x.parentId === c.id ? { ...x, parentId: parent } : x));
+    library = library.map((d) =>
+      d.collectionId === c.id ? { ...d, collectionId: parent ?? "" } : d
+    );
+    if (activeCollection === c.id) activeCollection = "";
+    persistLibrary();
+    saveCollections();
+  }
+
+  function moveDoc(doc: Doc, collectionId: string) {
+    library = library.map((d) => (d.id === doc.id ? { ...d, collectionId } : d));
     persistLibrary();
   }
 
@@ -529,33 +634,81 @@
 
 {#if nav === "library"}
   <main class="library">
-    <div class="libbar">
-      <input class="search" bind:value={query} placeholder="搜索 arXiv ID 或分类…" />
-      <span class="grow"></span>
-      <span class="rmeta">{visibleDocs.length} 篇</span>
-    </div>
-    <div class="liblist">
-      {#if !visibleDocs.length}
-        <div class="empty">还没有论文。回工作台输入 arXiv ID 跑一篇，会自动收进这里。</div>
-      {/if}
-      {#each visibleDocs as d (d.id)}
-        <div class="librow">
-          <button class="libopen" on:click={() => openDoc(d)}>
-            <span class="libtitle">{d.arxivId}</span>
-            <span class="libmeta">
-              {new Date(d.addedAt).toLocaleDateString()} · 进度 {Math.round(d.progress || 0)}%
-            </span>
-            <span class="libbar-track"><i style={`width:${d.progress || 0}%`}></i></span>
+    <aside class="libside">
+      <button class="sideitem" class:on={activeCollection === ""} on:click={() => (activeCollection = "")}>
+        全部 <span class="n">{library.length}</span>
+      </button>
+      <button
+        class="sideitem"
+        class:on={activeCollection === "none"}
+        on:click={() => (activeCollection = "none")}
+      >
+        未分类
+      </button>
+      {#each tree as node (node.id)}
+        <div class="siderow" style={`padding-left:${node.depth * 12}px`}>
+          <button
+            class="sideitem"
+            class:on={activeCollection === node.id}
+            on:click={() => (activeCollection = node.id)}
+          >
+            {node.name}
           </button>
-          <input
-            class="colinput"
-            placeholder="分类"
-            value={d.collection}
-            on:change={(e) => setCollection(d, (e.target as HTMLInputElement).value)}
-          />
+          <button
+            class="del"
+            title="删除集合"
+            on:click|stopPropagation={() => {
+              const c = collections.find((x) => x.id === node.id);
+              if (c) deleteCollection(c);
+            }}
+          >
+            ×
+          </button>
         </div>
       {/each}
-    </div>
+      <div class="addrow">
+        <input
+          bind:value={newCollectionName}
+          placeholder="新集合"
+          on:keydown={(e) => e.key === "Enter" && addCollection()}
+        />
+        <button on:click={addCollection}>+</button>
+      </div>
+    </aside>
+
+    <section class="libmain">
+      <div class="libbar">
+        <input class="search" bind:value={query} placeholder="搜索 arXiv ID…" />
+        <span class="grow"></span>
+        <span class="rmeta">{visibleDocs.length} 篇</span>
+      </div>
+      <div class="liblist">
+        {#if !visibleDocs.length}
+          <div class="empty">还没有论文。回工作台输入 arXiv ID 跑一篇，会自动收进这里。</div>
+        {/if}
+        {#each visibleDocs as d (d.id)}
+          <div class="librow">
+            <button class="libopen" on:click={() => openDoc(d)}>
+              <span class="libtitle">{d.arxivId}</span>
+              <span class="libmeta">
+                {new Date(d.addedAt).toLocaleDateString()} · 进度 {Math.round(d.progress || 0)}%
+              </span>
+              <span class="libbar-track"><i style={`width:${d.progress || 0}%`}></i></span>
+            </button>
+            <select
+              class="colselect"
+              value={d.collectionId ?? ""}
+              on:change={(e) => moveDoc(d, (e.target as HTMLSelectElement).value)}
+            >
+              <option value="">未分类</option>
+              {#each collections as c (c.id)}
+                <option value={c.id}>{c.name}</option>
+              {/each}
+            </select>
+          </div>
+        {/each}
+      </div>
+    </section>
   </main>
 {:else if nav === "discover"}
   <main class="feed">

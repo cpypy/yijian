@@ -260,6 +260,21 @@ fn save_library(text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn load_collections() -> Result<String, String> {
+    let path = app_dir().join("collections.json");
+    if !path.exists() {
+        return Ok("[]".into());
+    }
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_collections(text: String) -> Result<(), String> {
+    std::fs::create_dir_all(app_dir()).map_err(|e| e.to_string())?;
+    std::fs::write(app_dir().join("collections.json"), text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn load_notes(doc: String) -> Result<String, String> {
     let path = app_dir().join("notes").join(format!("{doc}.json"));
     if !path.exists() {
@@ -372,7 +387,9 @@ fn main() {
             load_library,
             save_library,
             discover,
-            clear_queue
+            clear_queue,
+            load_collections,
+            save_collections
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");
