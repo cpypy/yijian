@@ -420,3 +420,25 @@ main.feed { padding: 0; gap: 0; flex: 1; min-height: 0; display: flex; flex-dire
 .muted { color: var(--muted); }
 .cost { color: var(--muted); font-variant-numeric: tabular-nums; }
 button.sm { height: 28px; padding: 0 12px; font-size: 12px; border-radius: 7px; }
+
+/* ---------- 引用卡 ---------- */
+.refpop {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
+  z-index: 30;
+}
+.refhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.refkey { font-family: var(--serif); color: #6a6459; font-size: 11.5px; }
+.refclose {
+  border: none; background: transparent; font-size: 16px; line-height: 1;
+  padding: 0 4px; cursor: pointer; color: #8a8378;
+}
+.reftitle { font-size: 13px; font-weight: 600; line-height: 1.45; margin-bottom: 6px; color: var(--ink); }
+.refmeta { font-size: 11.5px; color: var(--muted); line-height: 1.55; }

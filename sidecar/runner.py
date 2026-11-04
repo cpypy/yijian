@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -181,6 +182,44 @@ def _wait_server(client, timeout: float = 40.0) -> bool:
     return False
 
 
+def _clean_tex(text: str) -> str:
+    """粗暴清洗 bibitem 文本：去掉常见命令，保留可读内容。"""
+    text = re.sub(r"\\emph\{([^}]*)\}", r"\1", text)
+    text = re.sub(r"\\textit\{([^}]*)\}", r"\1", text)
+    text = re.sub(r"\\textbf\{([^}]*)\}", r"\1", text)
+    text = re.sub(r"\\url\{([^}]*)\}", r"\1", text)
+    text = re.sub(r"\\[a-zA-Z]+\*?", "", text)
+    text = text.replace("{", "").replace("}", "").replace("~", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _parse_bbl(task_dir: Path) -> dict[str, dict[str, str]]:
+    """从编译产物的 .bbl 里抽参考文献，离线、不联网。"""
+    candidates = sorted((task_dir / "base").glob("*.bbl"))
+    if not candidates:
+        candidates = sorted(task_dir.glob("*.bbl"))
+    if not candidates:
+        return {}
+
+    text = max(candidates, key=lambda p: p.stat().st_size).read_text(
+        encoding="utf-8", errors="replace"
+    )
+    text = text.split("\\end{thebibliography}")[0]
+
+    parts = re.split(r"\\bibitem(?:\[[^\]]*\])?\{([^}]+)\}", text)
+    refs: dict[str, dict[str, str]] = {}
+    for i in range(1, len(parts) - 1, 2):
+        key = parts[i].strip()
+        body = parts[i + 1]
+        chunks = [c.strip() for c in re.split(r"\\newblock", body) if c.strip()]
+        refs[key] = {
+            "authors": _clean_tex(chunks[0]) if chunks else "",
+            "title": _clean_tex(chunks[1]) if len(chunks) > 1 else "",
+            "venue": _clean_tex(chunks[2]) if len(chunks) > 2 else "",
+        }
+    return refs
+
+
 def _sync_glossary() -> None:
     """把应用里的术语表写成 texlate 认识的 glossary.yaml（优先级最高的用户表）。"""
     src = BASE / "glossary.json"
@@ -307,7 +346,10 @@ def run(arxiv_id: str) -> int:
                     chunks = resp_chunks.json().get("chunks", [])
 
             segments_path.write_text(
-                json.dumps({"chunks": chunks, "total": len(chunks)}, ensure_ascii=False),
+                json.dumps(
+                    {"chunks": chunks, "total": len(chunks), "refs": _parse_bbl(TEXLATE_DATA / "tasks" / task_id)},
+                    ensure_ascii=False,
+                ),
                 encoding="utf-8",
             )
             count = len(chunks)

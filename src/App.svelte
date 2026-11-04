@@ -66,6 +66,10 @@
   let noteOpen = -1;
   let noteTimer: ReturnType<typeof setTimeout> | null = null;
 
+  type RefInfo = { authors: string; title: string; venue: string };
+  let refs: Record<string, RefInfo> = {};
+  let activeRef = "";
+
   let library: Doc[] = [];
   let query = "";
   let currentDocId = "";
@@ -121,11 +125,16 @@
         return `<code>${esc(tex)}</code>`;
       }
     }
-    if (kind === "CITE" || kind === "REF") {
-      const key = raw.replace(/^\\[a-zA-Z]+\{|\}$/g, "");
-      return `<span class="chip ${kind.toLowerCase()}" title="${esc(raw)}">${esc(
-        key.slice(0, 20)
+    if (kind === "CITE") {
+      const keys = raw.replace(/^\\[a-zA-Z]+\{|\}$/g, "");
+      const first = keys.split(",")[0].trim();
+      return `<span class="chip cite" data-cite="${esc(first)}" title="${esc(raw)}">${esc(
+        first.slice(0, 20)
       )}</span>`;
+    }
+    if (kind === "REF") {
+      const key = raw.replace(/^\\[a-zA-Z]+\{|\}$/g, "");
+      return `<span class="chip ref" title="${esc(raw)}">${esc(key.slice(0, 20))}</span>`;
     }
     if (kind === "URL") {
       const url = raw.replace(/^\\url\{|\}$/g, "");
@@ -260,6 +269,8 @@
 
   async function applySegments(raw: string) {
     const data = JSON.parse(raw);
+    refs = data.refs ?? {};
+    activeRef = "";
     segments = (data.chunks ?? []).map((c: any) => ({
       seq: c.seq,
       kind: c.kind || "para",
@@ -290,6 +301,15 @@
       logs = [`无法打开：${String(e)}`];
       nav = "work";
       view = "work";
+    }
+  }
+
+  function onDocClick(e: MouseEvent) {
+    const target = e.target as HTMLElement | null;
+    const chip = target?.closest?.(".chip[data-cite]") as HTMLElement | null;
+    if (chip) {
+      activeRef = chip.dataset.cite || "";
+      e.stopPropagation();
     }
   }
 
@@ -636,6 +656,7 @@
       class:only-zh={mode === "zh"}
       bind:this={docEl}
       on:scroll={onDocScroll}
+      on:click|capture={onDocClick}
     >
       {#each segments as s (s.seq)}
         <div
@@ -680,6 +701,22 @@
       {/each}
     </div>
   </main>
+{/if}
+
+{#if activeRef}
+  <div class="refpop">
+    <div class="refhead">
+      <span class="refkey">{activeRef}</span>
+      <button class="refclose" on:click={() => (activeRef = "")}>×</button>
+    </div>
+    {#if refs[activeRef]}
+      <div class="reftitle">{refs[activeRef].title || "（无标题）"}</div>
+      <div class="refmeta">{refs[activeRef].authors}</div>
+      <div class="refmeta">{refs[activeRef].venue}</div>
+    {:else}
+      <div class="refmeta">本地文献表里没有这条引用</div>
+    {/if}
+  </div>
 {/if}
 
 {#if showSettings}
