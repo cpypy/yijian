@@ -4,6 +4,7 @@ cd /d "%~dp0"
 set "PYTHONPATH=%CD%\.runtime"
 set "TEXLATE_DATA_DIR=%CD%\data\texlate"
 set "TEXLATE_CACHE_DIR=%CD%\data\texlate-cache"
+set "TECTONIC_CACHE_DIR=%CD%\data\tectonic-cache"
 set "PYTHONIOENCODING=utf-8"
 if not exist "%PYTHONPATH%" (
   echo 依赖没装，先运行 install.bat

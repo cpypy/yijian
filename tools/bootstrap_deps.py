@@ -106,6 +106,10 @@ def main() -> int:
             ok += 1
             print(f"[ok] {name}=={ver} <- {wheel['filename']}")
     print(f"\n{ok}/{len(PKGS)} 个包就位 -> {RUNTIME}")
+
+    from patch_runtime import apply_all
+
+    apply_all()
     return 0
 
 

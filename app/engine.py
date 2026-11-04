@@ -22,6 +22,7 @@ JOBS_DIR = ROOT / "data" / "jobs"
 DEPS = ROOT / ".runtime" if (ROOT / ".runtime").exists() else ROOT / ".deps"
 DATA_DIR = ROOT / "data" / "texlate"
 CACHE_DIR = ROOT / "data" / "texlate-cache"
+TECTONIC_CACHE = ROOT / "data" / "tectonic-cache"
 
 # 日志里出现这些词，就认为进入了对应阶段
 STAGES = [
@@ -47,8 +48,11 @@ def _env() -> dict[str, str]:
     # texlate 的运行时目录全部落在项目里，避免写用户目录
     env["TEXLATE_DATA_DIR"] = str(DATA_DIR)
     env["TEXLATE_CACHE_DIR"] = str(CACHE_DIR)
+    # tectonic 默认把 bundle 缓存写到 %LOCALAPPDATA%，受权限限制时会直接失败
+    env["TECTONIC_CACHE_DIR"] = str(TECTONIC_CACHE)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    TECTONIC_CACHE.mkdir(parents=True, exist_ok=True)
     return env
 
 
@@ -87,8 +91,10 @@ def _find_pdf(workdir: Path) -> Path | None:
 def run_job(job_id: str, arxiv_id: str) -> None:
     workdir = JOBS_DIR / job_id
     workdir.mkdir(parents=True, exist_ok=True)
+    build = workdir / "build"
+    build.mkdir(exist_ok=True)
     log_path = workdir / "run.log"
-    cmd = [sys.executable, "-m", "texlate", "run", arxiv_id, "-w", str(workdir), "--keep"]
+    cmd = [sys.executable, "-m", "texlate", "run", arxiv_id, "-w", str(build), "--keep"]
 
     _set(job_id, state="running", stage="fetch", progress=2.0, workdir=str(workdir))
 
@@ -116,7 +122,7 @@ def run_job(job_id: str, arxiv_id: str) -> None:
         return
 
     text = _tail(log_path, 20000)
-    pdf = _find_pdf(workdir)
+    pdf = _find_pdf(build)
 
     if rc == 0 and pdf:
         _set(job_id, state="done", stage="done", progress=100.0, pdf_path=str(pdf), error=None)

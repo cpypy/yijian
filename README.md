@@ -23,13 +23,20 @@
 
 | 模块 | 状态 |
 |---|---|
-| 引擎链路（取源 → 分段 → 占位翻译 → 注入 ctex） | ✅ 已跑通（arXiv:1706.03762） |
-| tectonic 编译 | ⚠️ 缓存目录受环境限制，待修（见 Issues） |
-| 本地 API + SQLite 任务表 | ✅ |
+| 引擎链路（取源 → 分段 → 占位翻译 → 注入 ctex → 编译） | ✅ 已跑通，arXiv:1706.03762 产出 1.3 MB PDF（clean） |
+| 本地 API + SQLite 任务表 | ✅ 端到端验证（POST /api/import → 轮询 → 拿 PDF） |
 | 单页界面（输入 ID、进度、日志） | ✅ 原型 |
-| 桌面窗口（WebView2） | ⏳ 待接入 |
+| 桌面窗口（WebView2） | ⏳ 待接入 pywebview |
 | 真翻译（BYOK） | ⏳ W3 |
 | 文库 / 发现（alphaXiv 全站热榜） | ⏳ |
+
+### 已知限制
+
+- 首次编译需要联网拉 TeX bundle（约 60 MB），之后走本地缓存。
+- texlate 在 Windows 上有两处水土不服，`tools/patch_runtime.py` 会在安装后自动打补丁：
+  1. 编译子进程的 env 白名单缺 `SYSTEMROOT`，导致 Winsock 初始化失败、tectonic 无法下载 bundle；同时缺 `TECTONIC_CACHE_DIR`，缓存会写向不可写目录。
+  2. `Path.mkdir(mode=0o700)` 在 Windows 上会把目录 ACL 收紧到创建者令牌，受限用户之后读不了自己的数据目录。
+- 这些补丁在把引擎 fork 进仓库后会直接落到源码里，不再需要运行时打补丁。
 
 ## 快速开始
 
