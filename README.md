@@ -10,13 +10,13 @@
 
 | 平台 | 文件 |
 |---|---|
-| Windows 10/11 | `Yijian_0.1.2_x64-setup.exe` |
-| macOS (Apple Silicon) | `Yijian_0.1.2_aarch64.dmg` |
-| Linux (Debian/Ubuntu) | `Yijian_0.1.2_amd64.deb` |
+| Windows 10/11 | `Yijian_0.1.3_x64-setup.exe` |
+| macOS (Apple Silicon) | `Yijian_0.1.3_aarch64.dmg` |
+| Linux (Debian/Ubuntu) | `Yijian_0.1.3_amd64.deb` |
 
 安装包未签名，首次运行可能需要 SmartScreen 确认。
 
-**状态：v0.1.2，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
+**状态：v0.1.3，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
 
 ## 架构
 
@@ -63,24 +63,25 @@ npm run tauri build        # 出安装包
 Windows / macOS / Linux 三个 runner 上分别构建引擎、打包安装包并创建 Release。
 
 ```bash
-git tag -a v0.1.1 -m "译见 0.1.1"
-git push origin v0.1.1
+git tag -a v0.1.3 -m "译见 0.1.3"
+git push origin v0.1.3
 ```
 
 ## 当前进度
 
 | 模块 | 状态 |
 |---|---|
-| 引擎链路（取源 → 分段 → mock 翻译 → ctex → tectonic） | ✅ 产出 1.3 MB PDF（arXiv:1706.03762） |
+| 引擎链路（server 管线：取源 → 分段 → mock 翻译 → ctex → tectonic） | ✅ 产出 zh.pdf + segments.json（200 段） |
 | sidecar 打包（stdio 事件协议） | ✅ 可独立运行 |
-| Tauri 壳 | 🚧 骨架完成，待 CI 首次构建 |
+| Tauri 壳 | ✅ 三平台出包，日志流式显示，可取消 |
 | 真翻译（BYOK） | ⏳ |
-| 阅读器 / 文库 / 发现 | ⏳ |
+| 阅读器 | 🚧 引擎已产出段落数据（en/zh/kind），界面待做 |
+| 文库 / 发现 | ⏳ |
 
 ## 已知限制
 
 - Windows 上 texlate 有两处水土不服（env 白名单缺 `SYSTEMROOT`、`mkdir(mode=0o700)` 收紧 ACL），sidecar 在启动时于运行时打补丁，不需要改安装文件。
-- 首次编译需要联网拉 TeX bundle（约 60 MB），之后走本地缓存。
+- 安装包已预置 32.9 MB 宏包缓存（6 篇论文预热），常见论文首次编译无需联网；缺的宏包仍会按需下载。
 - alphaXiv 的公开接口没有官方文档，发现页按「非官方接口」对待。
 
 ## 相关文档

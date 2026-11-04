@@ -3,10 +3,13 @@
 被 Tauri 壳以子进程方式拉起，参数 `--run <arxiv_id>`，
 在 stdout 上逐行输出 JSON 事件，由 Rust 侧转发给前端。
 
+内部流程：拉起 texlate server 子进程 → 提交翻译任务 → 轮询 →
+落盘 segments.json（段落级 en/zh）→ 输出 done 事件。
+
 事件类型：
   {"event":"stage","stage":"fetch","progress":8}
   {"event":"log","line":"..."}
-  {"event":"done","status":"clean","pdf":"<abs path>"}
+  {"event":"done","status":"clean","pdf":"<abs>","segments":"<abs>","chunks":213}
   {"event":"error","message":"..."}
 """
 
@@ -14,8 +17,8 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -41,21 +44,32 @@ TECTONIC_CACHE = DATA / "tectonic-cache"
 #: 安装包里预置的 TeX 宏包缓存（resources/texbundle）
 BUNDLED_TEXBUNDLE = APP_DIR.parent / "texbundle"
 
-STAGES = [
-    ("fetch", 8, re.compile(r"arxiv|fetch|下载|获取|拉取", re.I)),
-    ("parse", 22, re.compile(r"parse|segment|解析|分块|章节", re.I)),
-    ("translate", 45, re.compile(r"translat|翻译|mock|占位", re.I)),
-    ("compile", 78, re.compile(r"compil|tectonic|xelatex|编译|排版", re.I)),
-    ("judge", 94, re.compile(r"judge|validate|判定|校验", re.I)),
-]
+TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
+
+#: texlate 任务状态 → (阶段, 进度)
+STATUS_STAGE = {
+    "queued": ("fetch", 2),
+    "fetching": ("fetch", 8),
+    "parsing": ("parse", 22),
+    "translating": ("translate", 45),
+    "compiling": ("compile", 78),
+    "judging": ("judge", 92),
+    "done": ("done", 100),
+    "partial": ("done", 100),
+}
+
+STAGE_ORDER = ["fetch", "parse", "translate", "compile", "judge", "done"]
+
+
+def emit(**payload) -> None:
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
 
 
 def _patch_texlate() -> None:
-    """运行时给 texlate 打两个兼容补丁（等价于 tools/patch_runtime.py）。
+    """运行时给 texlate 打兼容补丁（等价于 tools/patch_runtime.py）。
 
     放这里而不是改文件，是为了让 CI 从 PyPI 装的 texlate 也能直接跑。
     """
-    # Windows 下 mkdir(mode=0o700) 会把目录 ACL 收紧，受限用户之后读不了
     if os.name == "nt":
         from pathlib import Path as _P
 
@@ -68,7 +82,6 @@ def _patch_texlate() -> None:
             _mkdir._yijian_patched = True  # type: ignore[attr-defined]
             _P.mkdir = _mkdir  # type: ignore[assignment]
 
-    # 编译子进程 env 白名单：缺 SYSTEMROOT 会导致 Winsock 初始化失败
     from texlate.compile import sandbox
 
     sandbox._ENV_PASS_EXACT.update(  # noqa: SLF001
@@ -92,19 +105,26 @@ def _patch_texlate() -> None:
     )
 
 
-def emit(**payload) -> None:
-    print(json.dumps(payload, ensure_ascii=False), flush=True)
+def _env() -> dict[str, str]:
+    env = os.environ.copy()
+    if not FROZEN:
+        runtime = APP_DIR / ".runtime"
+        if runtime.exists():
+            env["PYTHONPATH"] = str(runtime)
 
-
-TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
+    # 代理由用户自行配置（TUN 模式或系统级环境变量），这里不自动推断
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["TEXLATE_DATA_DIR"] = str(TEXLATE_DATA)
+    env["TEXLATE_CACHE_DIR"] = str(TEXLATE_CACHE)
+    env["TECTONIC_CACHE_DIR"] = str(TECTONIC_CACHE)
+    return env
 
 
 def _prepare() -> None:
     for path in (TEXLATE_DATA, TEXLATE_CACHE, TECTONIC_CACHE, JOBS):
         path.mkdir(parents=True, exist_ok=True)
 
-    # 首次运行：把安装包预置的宏包缓存合并到本地，避免联网拉 bundle。
-    # 用「缺什么补什么」而不是「空目录才拷」，这样半截缓存也能被补齐。
+    # 把安装包预置的宏包缓存合并到本地，缺什么补什么（半截缓存也能补齐）
     if BUNDLED_TEXBUNDLE.exists():
         copied = 0
         for item in BUNDLED_TEXBUNDLE.rglob("*"):
@@ -130,108 +150,126 @@ def _prepare() -> None:
                 break
 
 
-def _env() -> dict[str, str]:
-    env = os.environ.copy()
-    if not FROZEN:
-        runtime = APP_DIR / ".runtime"
-        if runtime.exists():
-            env["PYTHONPATH"] = str(runtime)
-
-    # 代理由用户自行配置（TUN 模式或系统级环境变量），这里不自动推断
-    env["PYTHONIOENCODING"] = "utf-8"
-    env["TEXLATE_DATA_DIR"] = str(TEXLATE_DATA)
-    env["TEXLATE_CACHE_DIR"] = str(TEXLATE_CACHE)
-    env["TECTONIC_CACHE_DIR"] = str(TECTONIC_CACHE)
-    return env
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
 
 
-def _read_from(path: Path, offset: int) -> tuple[str, int]:
-    """从 offset 读到末尾，返回新增文本与新的 offset。"""
-    try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            fh.seek(offset)
-            chunk = fh.read()
-            return chunk, fh.tell()
-    except FileNotFoundError:
-        return "", offset
+def _server_cmd(port: int) -> list[str]:
+    args = ["--port", str(port), "--data-dir", str(TEXLATE_DATA)]
+    if FROZEN:
+        return [sys.executable, "--texlate-server", *args]
+    return [sys.executable, "-m", "texlate.server", *args]
 
 
-def _tail(path: Path, limit: int = 20000) -> str:
-    try:
-        return path.read_text(encoding="utf-8", errors="replace")[-limit:]
-    except FileNotFoundError:
-        return ""
+def _wait_server(client, timeout: float = 40.0) -> bool:
+    import httpx
 
-
-def _stage(text: str) -> tuple[str, float]:
-    stage, pct = "fetch", 3.0
-    for name, p, pat in STAGES:
-        if pat.search(text):
-            stage, pct = name, float(p)
-    return stage, pct
-
-
-def _find_pdf(root: Path) -> Path | None:
-    pdfs = sorted(root.rglob("*.pdf"), key=lambda p: p.stat().st_size, reverse=True)
-    return pdfs[0] if pdfs else None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if client.get("/api/tasks", timeout=1.5).status_code == 200:
+                return True
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.4)
+    return False
 
 
 def run(arxiv_id: str) -> int:
+    import httpx
+
     _prepare()
     job_id = uuid.uuid4().hex[:12]
     work = JOBS / job_id
-    build = work / "build"
-    build.mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
     log_path = work / "run.log"
+    segments_path = work / "segments.json"
 
-    if FROZEN:
-        cmd = [sys.executable, "--texlate", "run", arxiv_id, "-w", str(build), "--keep"]
-    else:
-        cmd = [sys.executable, "-m", "texlate", "run", arxiv_id, "-w", str(build), "--keep"]
-
+    port = _free_port()
     emit(event="stage", stage="fetch", progress=2)
-    try:
-        with open(log_path, "w", encoding="utf-8", errors="replace") as fh:
-            fh.write("$ " + " ".join(cmd) + "\n\n")
-            fh.flush()
-            proc = subprocess.Popen(  # noqa: S603
-                cmd, stdout=fh, stderr=subprocess.STDOUT, env=_env(), cwd=str(work)
+
+    with open(log_path, "w", encoding="utf-8", errors="replace") as log_fh:
+        server = subprocess.Popen(  # noqa: S603
+            _server_cmd(port),
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            env=_env(),
+            cwd=str(work),
+        )
+        try:
+            client = httpx.Client(
+                base_url=f"http://127.0.0.1:{port}",
+                timeout=30.0,
+                trust_env=False,  # 本地回环不走代理
             )
-            last = ("", 0.0)
-            offset = 0
-            while proc.poll() is None:
-                chunk, offset = _read_from(log_path, offset)
-                for line in chunk.splitlines():
-                    if line.strip():
-                        emit(event="log", line=line)
-                stage, pct = _stage(_tail(log_path))
-                if (stage, pct) != last:
-                    emit(event="stage", stage=stage, progress=pct)
-                    last = (stage, pct)
+            if not _wait_server(client):
+                emit(event="error", message="引擎服务启动失败，详见 run.log")
+                return 1
+
+            resp = client.post(f"/api/arxiv/{arxiv_id}/translate", json={})
+            if resp.status_code >= 400:
+                emit(event="error", message=f"提交任务失败：{resp.status_code} {resp.text[:200]}")
+                return 1
+            task_id = resp.json()["task_id"]
+            emit(event="log", line=f"任务 {task_id} 已创建")
+
+            last_stage = ""
+            last_log = 0.0
+            task: dict = {}
+            while True:
                 time.sleep(1.0)
-            rc = proc.returncode
-            rest, _ = _read_from(log_path, offset)
-            for line in rest.splitlines():
-                if line.strip():
-                    emit(event="log", line=line)
-    except Exception as exc:  # noqa: BLE001
-        emit(event="error", message=f"{type(exc).__name__}: {exc}")
-        return 1
+                task = client.get(f"/api/task/{task_id}").json()
+                status = str(task.get("status") or "")
+                stage, pct = STATUS_STAGE.get(status, ("fetch", 2))
+                progress = task.get("progress")
+                if isinstance(progress, (int, float)) and status not in {"done", "partial"}:
+                    pct = min(95.0, float(progress))
 
-    text = _tail(log_path)
-    pdf = _find_pdf(build)
-    status = "failed"
-    match = re.search(r'"status"\s*:\s*"(clean|partial|failed)"', text)
-    if match:
-        status = match.group(1)
+                if stage != last_stage:
+                    emit(event="stage", stage=stage, progress=pct)
+                    last_stage = stage
 
-    if pdf and status in {"clean", "partial"}:
-        emit(event="done", status=status, pdf=str(pdf), job=job_id)
-        return 0
+                counters = task.get("counters") or {}
+                if time.time() - last_log > 3:
+                    last_log = time.time()
+                    total = counters.get("total") or 0
+                    done = counters.get("done") or 0
+                    if total:
+                        emit(event="log", line=f"翻译 {done}/{total}")
 
-    tail = "\n".join(text.strip().splitlines()[-8:])
-    emit(event="error", message=f"exit={rc}\n{tail}", job=job_id)
-    return 1
+                if status in {"done", "partial"}:
+                    break
+                if status in {"failed", "cancelled", "needs_auth"}:
+                    msg = task.get("message") or status
+                    emit(event="error", message=f"任务失败：{msg}")
+                    return 1
+
+            chunks_resp = client.get(f"/api/task/{task_id}/chunks")
+            chunks = chunks_resp.json() if chunks_resp.status_code == 200 else {"chunks": []}
+            segments_path.write_text(json.dumps(chunks, ensure_ascii=False), encoding="utf-8")
+            count = len(chunks.get("chunks") or [])
+
+            pdf = TEXLATE_DATA / "tasks" / task_id / "zh.pdf"
+            emit(
+                event="done",
+                status=task.get("status", "done"),
+                pdf=str(pdf) if pdf.exists() else "",
+                segments=str(segments_path),
+                chunks=count,
+                job=job_id,
+            )
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            emit(event="error", message=f"{type(exc).__name__}: {exc}")
+            return 1
+        finally:
+            server.terminate()
+            try:
+                server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                server.kill()
 
 
 def main() -> int:
@@ -241,6 +279,14 @@ def main() -> int:
 
         sys.argv = ["texlate", *sys.argv[2:]]
         cli_app()
+        return 0
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--texlate-server":
+        _patch_texlate()
+        from texlate.server.__main__ import main as server_main
+
+        sys.argv = ["texlate.server", *sys.argv[2:]]
+        server_main()
         return 0
 
     if len(sys.argv) >= 3 and sys.argv[1] == "--run":
