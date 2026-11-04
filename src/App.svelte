@@ -23,6 +23,7 @@
     lastSeq: number;
     collection?: string;
     collectionId?: string;
+    tags?: string[];
   };
   type Collection = { id: string; name: string; parentId: string | null };
 
@@ -77,6 +78,7 @@
   let library: Doc[] = [];
   let collections: Collection[] = [];
   let activeCollection = "";
+  let activeTag = "";
   let newCollectionName = "";
   let query = "";
   let currentDocId = "";
@@ -129,11 +131,12 @@
     return set;
   }
 
-  function filterDocs(docs: Doc[], cols: Collection[], active: string, q: string): Doc[] {
+  function filterDocs(docs: Doc[], cols: Collection[], active: string, q: string, tag: string): Doc[] {
     const query = q.trim().toLowerCase();
     const scope = active && active !== "none" ? descendantsOf(cols, active) : null;
     return docs
       .filter((d) => {
+        if (tag && !(d.tags ?? []).includes(tag)) return false;
         if (active === "none") {
           if (d.collectionId) return false;
         } else if (scope) {
@@ -145,8 +148,19 @@
       .sort((a, b) => b.addedAt - a.addedAt);
   }
 
+  function allTags(docs: Doc[]): { name: string; count: number }[] {
+    const map = new Map<string, number>();
+    for (const d of docs) {
+      for (const t of d.tags ?? []) {
+        if (t) map.set(t, (map.get(t) ?? 0) + 1);
+      }
+    }
+    return [...map.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  }
+
   $: tree = buildTree(collections);
-  $: visibleDocs = filterDocs(library, collections, activeCollection, query);
+  $: tagList = allTags(library);
+  $: visibleDocs = filterDocs(library, collections, activeCollection, query, activeTag);
 
   $: shownSegments = (() => {
     const q = readerQuery.trim().toLowerCase();
@@ -590,6 +604,16 @@
     persistLibrary();
   }
 
+  function setTags(doc: Doc, raw: string) {
+    const tags = raw
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+    library = library.map((d) => (d.id === doc.id ? { ...d, tags } : d));
+    persistLibrary();
+  }
+
   async function loadFeed() {
     if (feedLoading) return;
     feedLoading = true;
@@ -693,6 +717,19 @@
     <section class="libmain">
       <div class="libbar">
         <input class="search" bind:value={query} placeholder="搜索 arXiv ID…" />
+        {#if tagList.length}
+          <div class="tagbar">
+            {#each tagList as t (t.name)}
+              <button
+                class="tagchip"
+                class:on={activeTag === t.name}
+                on:click={() => (activeTag = activeTag === t.name ? "" : t.name)}
+              >
+                #{t.name} <span class="n">{t.count}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
         <span class="grow"></span>
         <span class="rmeta">{visibleDocs.length} 篇</span>
       </div>
@@ -719,6 +756,12 @@
                 <option value={c.id}>{c.name}</option>
               {/each}
             </select>
+            <input
+              class="taginput"
+              placeholder="标签"
+              value={(d.tags ?? []).join(", ")}
+              on:change={(e) => setTags(d, (e.target as HTMLInputElement).value)}
+            />
           </div>
         {/each}
       </div>

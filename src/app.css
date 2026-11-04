@@ -536,3 +536,31 @@ main.library { flex-direction: row; }
   background: #fff;
 }
 .rsearch:focus { border-color: #b9cbc4; box-shadow: 0 0 0 3px #e7f0ec; }
+
+/* ---------- 标签 ---------- */
+.libbar { flex-wrap: wrap; row-gap: 6px; }
+.tagbar { display: flex; gap: 5px; flex-wrap: wrap; }
+.tagchip {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 11px;
+  color: #6a6459;
+  cursor: pointer;
+}
+.tagchip:hover { background: #f7f3ea; }
+.tagchip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tagchip .n { opacity: 0.65; margin-left: 2px; }
+.taginput {
+  width: 120px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 8px;
+  font: 12px "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  background: #fff;
+  outline: none;
+}
+.taginput:focus { border-color: #b9cbc4; }
