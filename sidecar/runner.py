@@ -117,6 +117,10 @@ def _env() -> dict[str, str]:
     env["TEXLATE_DATA_DIR"] = str(TEXLATE_DATA)
     env["TEXLATE_CACHE_DIR"] = str(TEXLATE_CACHE)
     env["TECTONIC_CACHE_DIR"] = str(TECTONIC_CACHE)
+
+    # 没配 key 时用 mock 占位译文，保证不配模型也能把链路跑通
+    if not env.get("TEXLATE_API_KEY"):
+        env.setdefault("TEXLATE_TRANSLATOR", "mock")
     return env
 
 

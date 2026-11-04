@@ -4,6 +4,7 @@
   import { onMount, onDestroy } from "svelte";
 
   type Segment = { seq: number; kind: string; status: string; en: string; zh: string };
+  type Settings = { base_url: string; model: string; api_key: string };
 
   let arxivId = "1706.03762";
   let running = false;
@@ -19,6 +20,10 @@
   let segments: Segment[] = [];
   let mode: "both" | "en" | "zh" = "both";
   let selected = -1;
+
+  let showSettings = false;
+  let savedTip = "";
+  let settings: Settings = { base_url: "", model: "", api_key: "" };
 
   const STAGE_LABEL: Record<string, string> = {
     idle: "就绪",
@@ -36,7 +41,33 @@
     if (el) el.scrollTop = el.scrollHeight;
   }
 
+  async function loadSettings() {
+    try {
+      const s = await invoke<Record<string, string>>("load_settings");
+      settings = {
+        base_url: s.base_url ?? "",
+        model: s.model ?? "",
+        api_key: s.api_key ?? "",
+      };
+    } catch {
+      /* 忽略：首次运行没有设置文件 */
+    }
+  }
+
+  async function saveSettings() {
+    try {
+      await invoke("save_settings", { value: settings });
+      savedTip = "已保存";
+      setTimeout(() => (savedTip = ""), 1500);
+      showSettings = false;
+    } catch (e) {
+      savedTip = "保存失败：" + String(e);
+    }
+  }
+
   onMount(() => {
+    loadSettings();
+
     const un1 = listen<Record<string, unknown>>("engine-event", async (e) => {
       const p = e.payload as any;
       if (p.event === "stage") {
@@ -128,6 +159,9 @@
 <header>
   <div class="brand"><span class="logo">译</span> 译见</div>
   <span class="hint">arXiv 论文 → 中英对照阅读</span>
+  <span class="grow"></span>
+  {#if savedTip}<span class="saved">{savedTip}</span>{/if}
+  <button class="icon" title="模型设置" on:click={() => (showSettings = true)}>⚙</button>
 </header>
 
 {#if view === "work"}
@@ -145,6 +179,12 @@
         <button class="primary" on:click={start}>开始</button>
       {/if}
     </div>
+
+    {#if !settings.api_key}
+      <div class="banner">
+        未配置模型，译文为占位文本。点右上角 ⚙ 填 Base URL / 模型 / Key。
+      </div>
+    {/if}
 
     <div class="status">
       <span class="stage">{STAGE_LABEL[stage] ?? stage}</span>
@@ -194,4 +234,29 @@
       {/each}
     </div>
   </main>
+{/if}
+
+{#if showSettings}
+  <div class="overlay" on:click={() => (showSettings = false)} role="presentation">
+    <div class="panel" role="dialog" aria-label="模型设置" on:click|stopPropagation>
+      <h2>模型设置</h2>
+      <label>
+        Base URL
+        <input bind:value={settings.base_url} placeholder="https://api.deepseek.com/v1" />
+      </label>
+      <label>
+        模型
+        <input bind:value={settings.model} placeholder="deepseek-chat" />
+      </label>
+      <label>
+        API Key
+        <input type="password" bind:value={settings.api_key} placeholder="sk-..." />
+      </label>
+      <p class="tip">兼容 OpenAI 的端点都可用。Key 保存在本机 settings.json，不会上传。</p>
+      <div class="actions">
+        <button on:click={() => (showSettings = false)}>取消</button>
+        <button class="primary" on:click={saveSettings}>保存</button>
+      </div>
+    </div>
+  </div>
 {/if}

@@ -100,6 +100,22 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
+    // 把设置里的模型端点/密钥传给引擎（BYOK）
+    if let Ok(settings) = load_settings() {
+        for (key, env_key) in [
+            ("base_url", "TEXLATE_BASE_URL"),
+            ("api_key", "TEXLATE_API_KEY"),
+            ("model", "TEXLATE_MODEL"),
+        ] {
+            if let Some(value) = settings.get(key).and_then(|v| v.as_str()) {
+                let value = value.trim();
+                if !value.is_empty() {
+                    command.env(env_key, value);
+                }
+            }
+        }
+    }
+
     let mut child = command.spawn().map_err(|e| e.to_string())?;
 
     if let Some(state) = app.try_state::<RunState>() {
@@ -141,6 +157,36 @@ fn start_run(app: AppHandle, arxiv_id: String) -> Result<(), String> {
         let _ = app.emit("engine-exit", ());
     });
     Ok(())
+}
+
+fn settings_path() -> PathBuf {
+    let base = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let dir = if base.is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(base).join("Yijian")
+    };
+    dir.join("settings.json")
+}
+
+#[tauri::command]
+fn load_settings() -> Result<serde_json::Value, String> {
+    let path = settings_path();
+    if !path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_settings(value: serde_json::Value) -> Result<(), String> {
+    let path = settings_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let text = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+    std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -188,7 +234,9 @@ fn main() {
             start_run,
             cancel_run,
             open_pdf,
-            read_segments
+            read_segments,
+            load_settings,
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");
