@@ -16,10 +16,13 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            bundles: nsis
           - os: macos-latest
             target: aarch64-apple-darwin
+            bundles: dmg
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            bundles: deb
 
     runs-on: ${{ matrix.os }}
 
@@ -111,7 +114,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('译见 {0}', github.ref_name) || '' }}
           releaseDraft: true
