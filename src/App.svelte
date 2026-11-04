@@ -54,6 +54,7 @@
   let feedError = "";
   let lastTokens = 0;
   let lastSeconds = 0;
+  let queueLen = 0;
 
   let showSettings = false;
   let savedTip = "";
@@ -359,9 +360,21 @@
       }
     });
     const un2 = listen("engine-exit", () => (running = false));
+    const un3 = listen<{ arxiv_id: string }>("job-start", (e) => {
+      arxivId = e.payload.arxiv_id;
+      progress = 0;
+      stage = "fetch";
+      logs = [];
+      segments = [];
+      notes = {};
+      running = true;
+    });
+    const un4 = listen<number>("queue", (e) => (queueLen = e.payload));
     return () => {
       un1.then((f) => f());
       un2.then((f) => f());
+      un3.then((f) => f());
+      un4.then((f) => f());
     };
   });
 
@@ -372,7 +385,20 @@
   });
 
   async function start() {
-    if (running || !arxivId.trim()) return;
+    const id = arxivId.trim();
+    if (!id) return;
+
+    if (running) {
+      try {
+        await invoke("start_run", { arxivId: id });
+        savedTip = "已加入队列";
+        setTimeout(() => (savedTip = ""), 1500);
+      } catch (e) {
+        pushLog(String(e));
+      }
+      return;
+    }
+
     running = true;
     progress = 0;
     stage = "fetch";
@@ -389,9 +415,17 @@
       elapsed = Math.floor((Date.now() - startedAt) / 1000);
     }, 1000);
     try {
-      await invoke("start_run", { arxivId: arxivId.trim() });
+      await invoke("start_run", { arxivId: id });
     } catch (e) {
       running = false;
+      pushLog(String(e));
+    }
+  }
+
+  async function clearQueue() {
+    try {
+      await invoke("clear_queue");
+    } catch (e) {
       pushLog(String(e));
     }
   }
@@ -543,12 +577,13 @@
         bind:value={arxivId}
         placeholder="arXiv ID 或链接，例如 1706.03762"
         on:keydown={(e) => e.key === "Enter" && start()}
-        disabled={running}
       />
+      <button class="primary" on:click={start}>{running ? "加入队列" : "开始"}</button>
       {#if running}
         <button class="ghost" on:click={cancel}>取消</button>
-      {:else}
-        <button class="primary" on:click={start}>开始</button>
+      {/if}
+      {#if queueLen > 0}
+        <button class="ghost" on:click={clearQueue}>清空队列 {queueLen}</button>
       {/if}
     </div>
 
@@ -566,6 +601,9 @@
         <span class="elapsed">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(
             elapsed % 60
           ).padStart(2, "0")}</span>
+      {/if}
+      {#if queueLen > 0}
+        <span class="cost">队列 {queueLen}</span>
       {/if}
       {#if lastTokens}
         <span class="cost">{lastTokens.toLocaleString()} tokens · {lastSeconds}s</span>

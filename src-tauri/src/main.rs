@@ -54,6 +54,8 @@ fn engine_path(app: &AppHandle) -> PathBuf {
 #[derive(Default)]
 struct RunState {
     pid: std::sync::Mutex<Option<u32>>,
+    queue: std::sync::Mutex<std::collections::VecDeque<String>>,
+    busy: std::sync::atomic::AtomicBool,
 }
 
 #[tauri::command]
@@ -147,16 +149,70 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
 
 #[tauri::command]
 fn start_run(app: AppHandle, arxiv_id: String) -> Result<(), String> {
-    std::thread::spawn(move || {
-        if let Err(message) = spawn_engine(&app, &arxiv_id) {
-            let _ = app.emit(
-                "engine-event",
-                serde_json::json!({ "event": "error", "message": message }),
-            );
+    let id = arxiv_id.trim().to_string();
+    if id.is_empty() {
+        return Err("arXiv ID 为空".into());
+    }
+
+    {
+        let state = app.state::<RunState>();
+        let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
+        queue.push_back(id);
+        let _ = app.emit("queue", queue.len());
+    }
+
+    spawn_worker(app.clone());
+    Ok(())
+}
+
+fn spawn_worker(app: AppHandle) {
+    use std::sync::atomic::Ordering;
+
+    {
+        let state = app.state::<RunState>();
+        if state.busy.swap(true, Ordering::SeqCst) {
+            return; // 已有 worker 在跑，它会把队列里的活干完
         }
+    }
+
+    std::thread::spawn(move || {
+        loop {
+            let next = {
+                let state = app.state::<RunState>();
+                let mut queue = match state.queue.lock() {
+                    Ok(q) => q,
+                    Err(_) => break,
+                };
+                let item = queue.pop_front();
+                let _ = app.emit("queue", queue.len());
+                item
+            };
+
+            let Some(id) = next else { break };
+
+            let _ = app.emit("job-start", serde_json::json!({ "arxiv_id": id }));
+            if let Err(message) = spawn_engine(&app, &id) {
+                let _ = app.emit(
+                    "engine-event",
+                    serde_json::json!({ "event": "error", "message": message }),
+                );
+            }
+        }
+
+        let state = app.state::<RunState>();
+        state.busy.store(false, Ordering::SeqCst);
         let _ = app.emit("engine-exit", ());
     });
-    Ok(())
+}
+
+#[tauri::command]
+fn clear_queue(app: AppHandle) -> Result<usize, String> {
+    let state = app.state::<RunState>();
+    let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
+    let n = queue.len();
+    queue.clear();
+    let _ = app.emit("queue", 0);
+    Ok(n)
 }
 
 fn app_dir() -> PathBuf {
@@ -315,7 +371,8 @@ fn main() {
             save_notes,
             load_library,
             save_library,
-            discover
+            discover,
+            clear_queue
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");
