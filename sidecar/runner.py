@@ -182,6 +182,38 @@ def _wait_server(client, timeout: float = 40.0) -> bool:
     return False
 
 
+def _fetch_meta(arxiv_id: str) -> dict[str, str]:
+    """取标题/作者，供文库列表显示（一次请求，失败不影响主流程）。"""
+    import xml.etree.ElementTree as ET
+
+    import httpx
+
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    try:
+        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+            resp = client.get(
+                "https://export.arxiv.org/api/query",
+                params={"id_list": arxiv_id, "max_results": 1},
+            )
+        root = ET.fromstring(resp.text)
+        entry = root.find("a:entry", ns)
+        if entry is None:
+            return {}
+        title = " ".join((entry.findtext("a:title", "", ns) or "").split())
+        authors = [
+            (a.findtext("a:name", "", ns) or "").strip()
+            for a in entry.findall("a:author", ns)
+        ]
+        published = (entry.findtext("a:published", "", ns) or "")[:10]
+        return {
+            "title": title,
+            "authors": ", ".join([x for x in authors if x][:6]),
+            "published": published,
+        }
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _clean_tex(text: str) -> str:
     """粗暴清洗 bibitem 文本：去掉常见命令，保留可读内容。"""
     text = re.sub(r"\\emph\{([^}]*)\}", r"\1", text)
@@ -347,7 +379,12 @@ def run(arxiv_id: str) -> int:
 
             segments_path.write_text(
                 json.dumps(
-                    {"chunks": chunks, "total": len(chunks), "refs": _parse_bbl(TEXLATE_DATA / "tasks" / task_id)},
+                    {
+                        "chunks": chunks,
+                        "total": len(chunks),
+                        "refs": _parse_bbl(TEXLATE_DATA / "tasks" / task_id),
+                        "meta": _fetch_meta(arxiv_id),
+                    },
                     ensure_ascii=False,
                 ),
                 encoding="utf-8",

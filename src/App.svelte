@@ -21,6 +21,8 @@
     segments: string;
     progress: number;
     lastSeq: number;
+    title?: string;
+    authors?: string;
     collection?: string;
     collectionId?: string;
     tags?: string[];
@@ -74,6 +76,7 @@
   type RefInfo = { authors: string; title: string; venue: string };
   let refs: Record<string, RefInfo> = {};
   let activeRef = "";
+  let lastMeta: { title?: string; authors?: string } = {};
 
   let library: Doc[] = [];
   let collections: Collection[] = [];
@@ -143,7 +146,8 @@
           if (!scope.has(d.collectionId ?? "")) return false;
         }
         if (!query) return true;
-        return d.arxivId.toLowerCase().includes(query);
+        const hay = `${d.arxivId} ${d.title ?? ""} ${d.authors ?? ""}`.toLowerCase();
+        return hay.includes(query);
       })
       .sort((a, b) => b.addedAt - a.addedAt);
   }
@@ -341,6 +345,7 @@
   async function applySegments(raw: string) {
     const data = JSON.parse(raw);
     refs = data.refs ?? {};
+    lastMeta = data.meta ?? {};
     activeRef = "";
     segments = (data.chunks ?? []).map((c: any) => ({
       seq: c.seq,
@@ -442,6 +447,8 @@
               segments: p.segments,
               progress: 0,
               lastSeq: 0,
+              title: lastMeta.title,
+              authors: lastMeta.authors,
             });
           } catch (err) {
             pushLog("读取段落失败：" + String(err));
@@ -740,9 +747,9 @@
         {#each visibleDocs as d (d.id)}
           <div class="librow">
             <button class="libopen" on:click={() => openDoc(d)}>
-              <span class="libtitle">{d.arxivId}</span>
+              <span class="libtitle">{d.title || d.arxivId}</span>
               <span class="libmeta">
-                {new Date(d.addedAt).toLocaleDateString()} · 进度 {Math.round(d.progress || 0)}%
+                {d.arxivId}{d.authors ? ` · ${d.authors}` : ""} · 进度 {Math.round(d.progress || 0)}%
               </span>
               <span class="libbar-track"><i style={`width:${d.progress || 0}%`}></i></span>
             </button>
