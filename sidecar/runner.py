@@ -93,16 +93,21 @@ def emit(**payload) -> None:
     print(json.dumps(payload, ensure_ascii=False), flush=True)
 
 
+TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
+
+
 def _prepare() -> None:
     for path in (TEXLATE_DATA, TEXLATE_CACHE, TECTONIC_CACHE, JOBS):
         path.mkdir(parents=True, exist_ok=True)
 
-    target = TEXLATE_DATA / "tools" / "tectonic.exe"
+    target = TEXLATE_DATA / "tools" / TECTONIC_NAME
     if not target.exists():
-        for candidate in (APP_DIR / "tectonic.exe", APP_DIR / "tools" / "tectonic.exe"):
+        for candidate in (APP_DIR / TECTONIC_NAME, APP_DIR / "tools" / TECTONIC_NAME):
             if candidate.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(candidate, target)
+                if os.name != "nt":
+                    target.chmod(0o755)
                 break
 
 

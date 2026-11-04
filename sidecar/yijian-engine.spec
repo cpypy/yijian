@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """sidecar 打包：单文件 exe，内置 tetonic 与 texlate。"""
 
+import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
@@ -8,6 +9,8 @@ from PyInstaller.utils.hooks import collect_all
 ROOT = Path.cwd()
 if not (ROOT / "sidecar").exists():
     ROOT = Path(SPECPATH).resolve().parent  # noqa: F821
+
+TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
 
 datas = []
 binaries = []
@@ -34,7 +37,7 @@ for pkg in (
     except Exception as exc:  # noqa: BLE001
         print(f"[spec] skip {pkg}: {exc}")
 
-tectonic = ROOT / "data" / "texlate" / "tools" / "tectonic.exe"
+tectonic = ROOT / "data" / "texlate" / "tools" / TECTONIC_NAME
 if tectonic.exists():
     datas.append((str(tectonic), "."))
 else:

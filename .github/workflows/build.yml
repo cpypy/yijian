@@ -37,9 +37,13 @@ jobs:
         shell: bash
         env:
           TEXLATE_DATA_DIR: ${{ github.workspace }}/data/texlate
-          # texlate 在 CI=true 时默认关闭自动下载，这里显式打开
+          # texlate 见到 CI=true 会关掉自动下载；这里两个开关都显式打开
+          CI: ""
           TEXLATE_NO_DOWNLOAD: "0"
-        run: python -m texlate tools install-tectonic
+        run: |
+          python -m texlate tools install-tectonic
+          echo "--- tools dir ---"
+          ls -la data/texlate/tools/ || true
 
       - name: Build sidecar
         shell: bash
@@ -52,6 +56,11 @@ jobs:
         run: |
           mkdir -p src-tauri/sidecar
           cp -R dist-sidecar/yijian-engine/. src-tauri/sidecar/
+          # macOS/Linux 上资源会丢可执行位，这里补回来
+          if [ -f src-tauri/sidecar/yijian-engine ]; then
+            chmod +x src-tauri/sidecar/yijian-engine
+          fi
+          ls -la src-tauri/sidecar | head -20
 
       - uses: actions/setup-node@v4
         with:
