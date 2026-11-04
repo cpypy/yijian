@@ -16,13 +16,14 @@ import time
 from pathlib import Path
 
 from . import db
-
-ROOT = Path(__file__).resolve().parents[1]
-JOBS_DIR = ROOT / "data" / "jobs"
-DEPS = ROOT / ".runtime" if (ROOT / ".runtime").exists() else ROOT / ".deps"
-DATA_DIR = ROOT / "data" / "texlate"
-CACHE_DIR = ROOT / "data" / "texlate-cache"
-TECTONIC_CACHE = ROOT / "data" / "tectonic-cache"
+from .paths import (
+    DEPS,
+    FROZEN,
+    JOBS_DIR,
+    TECTONIC_CACHE,
+    TEXLATE_CACHE,
+    TEXLATE_DATA,
+)
 
 # 日志里出现这些词，就认为进入了对应阶段
 STAGES = [
@@ -44,15 +45,15 @@ def _env() -> dict[str, str]:
         env["HTTPS_PROXY"] = proxy
         env["HTTP_PROXY"] = proxy
     env["PYTHONIOENCODING"] = "utf-8"
-    env["PYTHONPATH"] = str(DEPS) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    # texlate 的运行时目录全部落在项目里，避免写用户目录
-    env["TEXLATE_DATA_DIR"] = str(DATA_DIR)
-    env["TEXLATE_CACHE_DIR"] = str(CACHE_DIR)
-    # tectonic 默认把 bundle 缓存写到 %LOCALAPPDATA%，受权限限制时会直接失败
+    if not FROZEN and DEPS.exists():
+        env["PYTHONPATH"] = str(DEPS) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    # texlate 的运行时目录全部落在数据目录，避免写用户目录
+    env["TEXLATE_DATA_DIR"] = str(TEXLATE_DATA)
+    env["TEXLATE_CACHE_DIR"] = str(TEXLATE_CACHE)
+    # tectonic 默认把 bundle 缓存写到 %LOCALAPPDATA%，受限环境会直接失败
     env["TECTONIC_CACHE_DIR"] = str(TECTONIC_CACHE)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    TECTONIC_CACHE.mkdir(parents=True, exist_ok=True)
+    for path in (TEXLATE_DATA, TEXLATE_CACHE, TECTONIC_CACHE):
+        path.mkdir(parents=True, exist_ok=True)
     return env
 
 
@@ -94,7 +95,11 @@ def run_job(job_id: str, arxiv_id: str) -> None:
     build = workdir / "build"
     build.mkdir(exist_ok=True)
     log_path = workdir / "run.log"
-    cmd = [sys.executable, "-m", "texlate", "run", arxiv_id, "-w", str(build), "--keep"]
+    if FROZEN:
+        # 打包后 sys.executable 是应用自己，用 --texlate 子命令转发给引擎
+        cmd = [sys.executable, "--texlate", "run", arxiv_id, "-w", str(build), "--keep"]
+    else:
+        cmd = [sys.executable, "-m", "texlate", "run", arxiv_id, "-w", str(build), "--keep"]
 
     _set(job_id, state="running", stage="fetch", progress=2.0, workdir=str(workdir))
 

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "app.db"
+from .paths import DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (

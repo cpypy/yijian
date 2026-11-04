@@ -1,99 +1,76 @@
 # 译见 · Yijian
 
-> 遇见论文的中文一面。一个 Windows 桌面双语论文阅读器。
+> 遇见论文的中文一面。一个跨平台桌面双语论文阅读器。
 
-把「发现论文 → 收进文库 → 一键中英对照精读」连成一条线的桌面应用。翻译走你自己的 OpenAI 兼容端点（BYOK），按量计费；排版复用论文的 LaTeX 源码重新编译，公式、引用、图表编号保持原位。
+输入 arXiv ID，取回 LaTeX 源码，逐段翻译，用 ctex 重新编译成中英对照 PDF。翻译走你自己的 OpenAI 兼容端点（BYOK），按量计费；公式、引用、图表编号保持原位。
 
-**当前状态：W1（骨架期），还不能日常使用。** 引擎链路已在 Windows 上跑通到编译前一步，界面是单页原型。
+**状态：早期开发。** 引擎链路已跑通，桌面壳正在从 Python 迁到 Tauri。
 
-## 为什么做这个
+## 架构
 
-我长期用「幻觉翻译」读论文，后来它开始收费。社区里 [texlate](https://github.com/WncFht/texlate) 做了同样思路的开源实现（arXiv LaTeX 源码 → 段落级翻译 → ctex 重编译），但它是一个 Web 服务：要起进程、开浏览器、手动提交任务。
+```
+┌─────────────────────────────────────────────┐
+│  Tauri 2 窗口（Rust + Svelte）               │
+│  任务列表 / 进度 / 日志 / PDF 预览            │
+└──────────────────┬──────────────────────────┘
+                   │ stdio（JSON Lines 事件）
+┌──────────────────▼──────────────────────────┐
+│  sidecar：yijian-engine（Python，PyInstaller）│
+│  arXiv 取源 → 分段 → 占位符保护 → LLM 翻译    │
+│  → ctex 注入 → tectonic 编译 → dual.json     │
+└─────────────────────────────────────────────┘
+```
 
-译见想做的是**桌面应用**：双击打开、拖入论文、本地文库、离线可读、系统级集成。
+- **壳**：Tauri 2，Rust 只负责窗口、进程管理和事件转发；界面用 Svelte。
+- **引擎**：Python（复用 [texlate](https://github.com/WncFht/texlate) 的管线），打包成独立可执行文件随安装包分发，**用户不需要装 Python**。
+- **编译器**：tectonic（单文件二进制，随包分发），首次编译时按需下载 TeX bundle。
 
-## 和 texlate 的关系
+## 仓库结构
 
-- **核心思路完全来自 texlate**，并在其思路上做桌面化封装。
-- 当前版本以依赖方式使用 texlate（`texlate==0.1.1`，Apache-2.0）。
-- 后续计划把引擎 fork 进本仓库（`vendor/texlate`），以便加入段落级重译、优先级队列、人工修订回写 PDF 等桌面端必需的能力。
-- texlate 采用 Apache-2.0，本项目同样采用 Apache-2.0，详见 [NOTICE](NOTICE)。
+```
+src/            Svelte 前端
+src-tauri/      Tauri 2 应用（Rust）
+sidecar/        Python 引擎与 PyInstaller 配置
+app/            引擎的 Python 实现（分段、任务、SQLite）
+docs/           设计方案与界面原型
+packaging/      旧版 Qt 打包配置（保留参考）
+```
+
+## 构建
+
+本地需要 Rust 1.77+、Node 20+、Python 3.12。三者齐备后：
+
+```bash
+npm install
+npm run tauri dev          # 开发
+python -m PyInstaller sidecar/yijian-engine.spec   # 先出引擎
+npm run tauri build        # 出安装包
+```
+
+如果本机没有 Rust/MSVC，**交给 CI**：推送一个 `v*` 标签，GitHub Actions 会在
+Windows / macOS / Linux 三个 runner 上分别构建引擎、打包安装包并创建 Release。
+
+```bash
+git tag -a v0.1.0 -m "译见 0.1.0"
+git push origin v0.1.0
+```
 
 ## 当前进度
 
 | 模块 | 状态 |
 |---|---|
-| 引擎链路（取源 → 分段 → 占位翻译 → 注入 ctex → 编译） | ✅ 已跑通，arXiv:1706.03762 产出 1.3 MB PDF（clean） |
-| 本地 API + SQLite 任务表 | ✅ 端到端验证（POST /api/import → 轮询 → 拿 PDF） |
-| 单页界面（输入 ID、进度、日志） | ✅ 原型 |
-| 桌面窗口（WebView2） | ⏳ 待接入 pywebview |
-| 真翻译（BYOK） | ⏳ W3 |
-| 文库 / 发现（alphaXiv 全站热榜） | ⏳ |
+| 引擎链路（取源 → 分段 → mock 翻译 → ctex → tectonic） | ✅ 产出 1.3 MB PDF（arXiv:1706.03762） |
+| sidecar 打包（stdio 事件协议） | ✅ 可独立运行 |
+| Tauri 壳 | 🚧 骨架完成，待 CI 首次构建 |
+| 真翻译（BYOK） | ⏳ |
+| 阅读器 / 文库 / 发现 | ⏳ |
 
-### 已知限制
+## 已知限制
 
+- Windows 上 texlate 有两处水土不服（env 白名单缺 `SYSTEMROOT`、`mkdir(mode=0o700)` 收紧 ACL），sidecar 在启动时于运行时打补丁，不需要改安装文件。
 - 首次编译需要联网拉 TeX bundle（约 60 MB），之后走本地缓存。
-- texlate 在 Windows 上有两处水土不服，`tools/patch_runtime.py` 会在安装后自动打补丁：
-  1. 编译子进程的 env 白名单缺 `SYSTEMROOT`，导致 Winsock 初始化失败、tectonic 无法下载 bundle；同时缺 `TECTONIC_CACHE_DIR`，缓存会写向不可写目录。
-  2. `Path.mkdir(mode=0o700)` 在 Windows 上会把目录 ACL 收紧到创建者令牌，受限用户之后读不了自己的数据目录。
-- 这些补丁在把引擎 fork 进仓库后会直接落到源码里，不再需要运行时打补丁。
-
-## 快速开始
-
-需要 Windows + Python 3.12（本机用 Anaconda 的 3.12.7 验证）。
-
-```bat
-:: 1. 安装依赖（不走 pip 安装到环境，而是解压到 .runtime）
-python tools\bootstrap_deps.py
-
-:: 2. 安装 TeX 引擎（tectonic，约 30 MB）
-tools\install_tectonic.bat
-
-:: 3. 自检
-tools\doctor.bat
-
-:: 4. 启动
-run.bat
-```
-
-`run.bat` 默认开窗口；`python -m app.main --headless` 只起本地 API，浏览器访问终端打印的地址。
-
-### 目录约定
-
-```
-app/          后端：FastAPI + SQLite + 引擎适配层
-web/          前端：单页界面（W1 用原生 JS，后续换 React）
-tools/        安装、自检、研究脚本
-docs/         设计文档与界面原型
-data/         运行时数据（论文缓存、任务产物、数据库）——不入库
-.runtime/     依赖解压目录——不入库
-```
-
-## 技术栈
-
-Python 3.12 · FastAPI · SQLite · pywebview（WebView2，待接入）· tectonic · ctex
-
-## 路线图
-
-- **W1** 骨架：窗口 + 本地 API + arXiv 导入 + mock 编译
-- **W2** 阅读器：双语对照、公式渲染、同步滚动
-- **W3** 真翻译：BYOK、SSE 流式、段落状态、缓存
-- **W4** 文库：集合、标签、智能集合、全文搜索
-- **W5** 发现：alphaXiv 全站热榜
-- **W6+** 打包、签名、自动更新
-
-详细设计见 [docs/设计方案.md](docs/设计方案.md)，可点击的界面原型见 [docs/界面原型.html](docs/界面原型.html)。
-
-## 参与贡献
-
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。如果你也读英文论文、也在被订阅制收费困扰，欢迎来提 Issue 或 PR。
-
-## 免责声明
-
-- 本项目**不是** alphaXiv / arXiv / texlate 的官方项目，与它们没有隶属关系。
-- alphaXiv 的公开接口没有官方文档，客户端按「非官方接口」对待，随时可能失效。
-- 请只翻译你有权访问的论文，产物仅供个人学习研究使用，不要二次分发原文。
+- alphaXiv 的公开接口没有官方文档，发现页按「非官方接口」对待。
 
 ## 许可证
 
-[Apache-2.0](LICENSE)。第三方组件与上游项目的许可见 [NOTICE](NOTICE)。
+[Apache-2.0](LICENSE)。上游项目与第三方组件见 [NOTICE](NOTICE)。

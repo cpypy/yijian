@@ -14,9 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from . import db, engine
-
-ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "web"
+from .paths import WEB_DIR
 
 app = FastAPI(title="译见")
 
@@ -41,7 +39,7 @@ def health() -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    return (WEB / "index.html").read_text(encoding="utf-8")
+    return (WEB_DIR / "index.html").read_text(encoding="utf-8")
 
 
 @app.post("/api/import")

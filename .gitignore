@@ -7,14 +7,22 @@
 data/
 logs/
 
+# 构建产物
+.build/
+dist/
+dist-sidecar/
+node_modules/
+src-tauri/target/
+src-tauri/sidecar/
+src-tauri/gen/
+src-tauri/icons/
+
 # Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
-build/
-dist/
 
 # 编辑器 / 系统
 .vscode/

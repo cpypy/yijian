@@ -1,0 +1,88 @@
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python engine dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller texlate
+
+      - name: Install tectonic
+        shell: bash
+        env:
+          TEXLATE_DATA_DIR: ${{ github.workspace }}/data/texlate
+        run: python -m texlate tools install-tectonic
+
+      - name: Build sidecar
+        shell: bash
+        run: |
+          python -m PyInstaller sidecar/yijian-engine.spec \
+            --noconfirm --distpath dist-sidecar --workpath .build/work-sidecar
+
+      - name: Stage sidecar for bundling
+        shell: bash
+        run: |
+          mkdir -p src-tauri/sidecar
+          cp -R dist-sidecar/yijian-engine/. src-tauri/sidecar/
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend dependencies
+        shell: bash
+        run: npm install
+
+      - name: Generate icons
+        shell: bash
+        run: npx tauri icon app-icon.png
+
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf build-essential curl wget file libssl-dev
+
+      - name: Build installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target ${{ matrix.target }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('译见 {0}', github.ref_name) || '' }}
+          releaseDraft: true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: yijian-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
