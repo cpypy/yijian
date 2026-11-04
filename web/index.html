@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>译见</title>
+<style>
+  :root{
+    --paper:#F7F4EE; --surface:#FFF; --ink:#1B1A17; --muted:#7A746A;
+    --line:#E4DED2; --accent:#2E5F55; --warn:#B45309; --ok:#2E7D5B;
+    --ui:"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;
+    --serif:"Iowan Old Style",Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--paper);color:var(--ink);font:13px/1.6 var(--ui);display:flex;flex-direction:column}
+  header{height:48px;display:flex;align-items:center;gap:12px;padding:0 16px;
+         background:var(--surface);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:650}
+  .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);color:#fff;
+        display:grid;place-items:center;font-size:11px}
+  .brand em{font-style:normal;font-size:11px;color:var(--muted);font-weight:400;margin-left:4px}
+  .hint{margin-left:auto;font-size:12px;color:var(--muted)}
+  .hint.err{color:var(--warn)}
+  main{flex:1;min-height:0;display:flex;flex-direction:column;padding:14px 16px 16px;gap:12px}
+  form{display:flex;gap:8px}
+  input{flex:1;height:38px;border:1px solid var(--line);border-radius:9px;background:#fff;
+        padding:0 13px;font:13px var(--ui);outline:0}
+  input:focus{border-color:#B9CBC4;box-shadow:0 0 0 3px #E7F0EC}
+  button{height:38px;padding:0 16px;border-radius:9px;border:1px solid var(--line);
+         background:#fff;color:#3D3A34;font:inherit;cursor:pointer}
+  button:hover{background:#FBF8F1}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{background:#254C44}
+  button:disabled{opacity:.45;cursor:default}
+  .layout{flex:1;min-height:0;display:grid;grid-template-columns:340px minmax(0,1fr);gap:12px}
+  .jobs{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:auto}
+  .job{padding:11px 13px;border-bottom:1px solid #F0EBE1;cursor:pointer}
+  .job:last-child{border-bottom:0}
+  .job:hover{background:#FBF8F2}
+  .job.on{background:#EEF4F1;box-shadow:inset 3px 0 0 var(--accent)}
+  .job .t{display:flex;justify-content:space-between;gap:8px;font-size:12.5px}
+  .job .id{font-family:var(--serif);color:#4A463E}
+  .job .st{font-size:11px}
+  .st.queued,.st.running{color:var(--warn)}
+  .st.done{color:var(--ok)}
+  .st.failed{color:#B42318}
+  .job .meta{font-size:11px;color:var(--muted);margin-top:3px}
+  .detail{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+          display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .bar{display:flex;align-items:center;gap:10px;padding:10px 13px;border-bottom:1px solid #F0EBE1;font-size:12.5px}
+  .bar .ghost{height:28px;padding:0 10px;font-size:12px;border-radius:7px}
+  .progress{height:3px;background:#EFEAE0}
+  .progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s}
+  pre{flex:1;margin:0;padding:12px 13px;overflow:auto;font:12px/1.55 "Cascadia Mono",Consolas,monospace;
+      color:#4A463E;white-space:pre-wrap;word-break:break-all}
+  .empty{padding:24px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">译</span>译见<em>W1 · 编译链路</em></div>
+  <div class="hint" id="hint">输入 arXiv ID，跑 mock 管线：取源 → 分段 → 占位翻译 → ctex 编译</div>
+</header>
+
+<main>
+  <form id="form">
+    <input id="aid" placeholder="arXiv ID 或链接，例如 1706.03762 / https://arxiv.org/abs/1706.03762" autocomplete="off" autofocus>
+    <button class="primary" id="go">开始</button>
+  </form>
+
+  <section class="layout">
+    <div class="jobs" id="jobs"><div class="empty">还没有任务</div></div>
+    <div class="detail">
+      <div class="bar">
+        <span id="jobTitle">未选择任务</span>
+        <span style="flex:1"></span>
+        <button class="ghost" id="openPdf" disabled>打开 PDF</button>
+      </div>
+      <div class="progress"><i id="bar"></i></div>
+      <pre id="log">等待任务…</pre>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { jobs: [], current: null, timer: null };
+const STAGE = { queued: '排队', fetch: '取源', parse: '分段', translate: '翻译',
+                compile: '编译', judge: '判定', done: '完成' };
+
+function hint(text, isErr) {
+  $('hint').textContent = text;
+  $('hint').className = 'hint' + (isErr ? ' err' : '');
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    let msg = r.status;
+    try { msg = (await r.json()).detail || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+function renderJobs() {
+  const box = $('jobs');
+  if (!state.jobs.length) { box.innerHTML = '<div class="empty">还没有任务</div>'; return; }
+  box.innerHTML = state.jobs.map(j => {
+    const st = j.state === 'running' ? (STAGE[j.stage] || '运行中') : (STAGE[j.state] || j.state);
+    const pct = Math.round(j.progress || 0);
+    return `<div class="job ${j.id === state.current ? 'on' : ''}" data-id="${j.id}">
+      <div class="t"><span class="id">${j.arxiv_id}</span><span class="st ${j.state}">${st}</span></div>
+      <div class="meta">${j.state === 'done' ? 'zh.pdf 已生成' : pct + '% · ' + new Date(j.created_at * 1000).toLocaleTimeString()}</div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.job').forEach(el => el.onclick = () => select(el.dataset.id));
+}
+
+async function select(id) {
+  state.current = id;
+  renderJobs();
+  await tick();
+}
+
+async function tick() {
+  const job = state.current ? state.jobs.find(j => j.id === state.current) : null;
+  if (!job) {
+    $('jobTitle').textContent = '未选择任务';
+    $('bar').style.width = '0%';
+    $('openPdf').disabled = true;
+    return;
+  }
+  const st = job.state === 'running' ? (STAGE[job.stage] || '运行中') : (STAGE[job.state] || job.state);
+  $('jobTitle').textContent = `${job.arxiv_id} · ${st}`;
+  $('bar').style.width = (job.progress || 0) + '%';
+  $('openPdf').disabled = !(job.state === 'done' && job.pdf_path);
+  try {
+    const { log } = await api(`/api/jobs/${job.id}/log?lines=160`);
+    const el = $('log');
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.textContent = log || '（暂无日志）';
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  } catch (e) {}
+}
+
+async function refresh() {
+  try {
+    state.jobs = await api('/api/jobs');
+  } catch (e) {
+    hint('API 连接失败：' + e.message, true);
+    return;
+  }
+  if (!state.current || !state.jobs.some(j => j.id === state.current)) {
+    const running = state.jobs.find(j => j.state === 'running' || j.state === 'queued');
+    state.current = (running || state.jobs[0] || {}).id || null;
+  }
+  renderJobs();
+  await tick();
+}
+
+$('form').onsubmit = async (e) => {
+  e.preventDefault();
+  const aid = $('aid').value.trim();
+  if (!aid) return;
+  $('go').disabled = true;
+  try {
+    const { id } = await api('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ arxiv_id: aid })
+    });
+    state.current = id;
+    $('aid').value = '';
+    hint('已创建任务，跑 mock 管线（占位译文，不是真翻译）');
+    await refresh();
+  } catch (err) {
+    hint(err.message, true);
+  } finally {
+    $('go').disabled = false;
+  }
+};
+
+$('openPdf').onclick = async () => {
+  if (!state.current) return;
+  try { await api(`/api/jobs/${state.current}/open`, { method: 'POST' }); }
+  catch (e) { hint(e.message, true); }
+};
+
+refresh();
+state.timer = setInterval(refresh, 1500);
+</script>
+</body>
+</html>

@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>译见 · 界面原型</title>
+<style>
+  :root{
+    --paper:#F7F4EE;
+    --surface:#FFFFFF;
+    --ink:#1B1A17;
+    --ink-2:#3D3A34;
+    --muted:#7A746A;
+    --line:#E4DED2;
+    --line-2:#EFEAE0;
+    --accent:#2E5F55;
+    --accent-soft:#E7F0EC;
+    --warn:#B45309;
+    --hl:#FBF0D9;
+    --serif-en:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    --serif-zh:"Songti SC",STSong,SimSun,"Source Han Serif SC",serif;
+    --ui:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font:13px/1.55 var(--ui);-webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  svg{flex:none}
+  /* ---------- 标题栏 ---------- */
+  .titlebar{
+    height:44px;flex:none;display:flex;align-items:center;gap:14px;
+    padding:0 12px 0 14px;background:var(--surface);border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:center;gap:8px;font-weight:650;letter-spacing:.5px}
+  .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);
+        color:#fff;display:grid;place-items:center;font-size:11px;font-family:var(--serif-zh)}
+  .searchbar{
+    flex:1;max-width:520px;height:28px;display:flex;align-items:center;gap:7px;
+    padding:0 10px;background:#F3F0E9;border:1px solid transparent;border-radius:7px;color:var(--muted);
+  }
+  .searchbar:focus-within{background:#fff;border-color:var(--line)}
+  .searchbar input{border:0;background:transparent;outline:0;flex:1;font:inherit;color:var(--ink)}
+  .kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;font-size:10px;color:var(--muted)}
+  .spacer{flex:1}
+  .icon-btn{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:var(--ink-2);cursor:pointer}
+  .icon-btn:hover{background:#F1EDE5}
+  .wincontrols{display:flex;gap:2px;margin-left:4px}
+  .wincontrols span{width:34px;height:28px;display:grid;place-items:center;border-radius:5px;color:#5A554C;font-size:11px;cursor:default}
+  .wincontrols span:hover{background:#EFEAE1}
+  .wincontrols .close:hover{background:#E5484D;color:#fff}
+  /* ---------- 主体 ---------- */
+  .app{flex:1;display:flex;min-height:0}
+  .rail{
+    width:196px;flex:none;background:#F1EDE4;border-right:1px solid var(--line);
+    padding:10px 8px;display:flex;flex-direction:column;gap:1px;overflow:auto;
+  }
+  .rail .item{
+    display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;
+    color:#4A463E;cursor:pointer;user-select:none;font-size:13px;
+  }
+  .rail .item:hover{background:#E9E4D9}
+  .rail .item.active{background:var(--surface);color:var(--accent);font-weight:650;
+    box-shadow:0 1px 2px rgba(60,50,30,.08)}
+  .rail .item .count{margin-left:auto;font-size:11px;color:var(--muted);font-weight:400}
+  .rail .item.active .count{color:var(--accent)}
+  .rail .sep{height:1px;background:var(--line);margin:8px 6px}
+  .rail .cap{padding:8px 10px 4px;font-size:11px;color:var(--muted);letter-spacing:.4px}
+  .rail .tagline{font-size:11px;color:var(--muted);padding:0 10px;line-height:1.5}
+  .view{flex:1;min-width:0;overflow:auto}
+  .view[hidden]{display:none}
+  /* ---------- 发现 ---------- */
+  .discover{padding:22px 26px 40px;max-width:1180px;margin:0 auto}
+  .discover h1{margin:0 0 4px;font-size:20px;font-weight:650;letter-spacing:.2px}
+  .discover .sub{color:var(--muted);margin-bottom:18px}
+  .dsearch{display:flex;gap:8px;margin-bottom:14px}
+  .dsearch input{
+    flex:1;height:38px;border:1px solid var(--line);border-radius:9px;background:#fff;
+    padding:0 14px;font:14px var(--ui);outline:0;
+  }
+  .dsearch input:focus{border-color:#B9CBC4;box-shadow:0 0 0 3px var(--accent-soft)}
+  .btn{
+    height:38px;padding:0 16px;border-radius:9px;border:1px solid var(--line);
+    background:#fff;color:var(--ink-2);font:inherit;cursor:pointer;display:inline-flex;
+    align-items:center;gap:6px;
+  }
+  .btn:hover{background:#FBF8F1}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:#254C44}
+  .btn.sm{height:28px;padding:0 10px;font-size:12px;border-radius:7px}
+  .syntax{font-size:11.5px;color:var(--muted);margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .syntax code{background:#EEE9DE;border-radius:4px;padding:1px 5px;font-size:11px;color:#5A5449}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:4px 11px;font-size:12px;color:#57524A;cursor:pointer}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .dhead{display:flex;align-items:baseline;gap:12px}
+  .dnote{font-size:11.5px;color:var(--muted)}
+  .tabs{display:flex;align-items:center;gap:6px;margin:6px 0 16px;border-bottom:1px solid var(--line)}
+  .tab{padding:7px 11px;border-radius:7px 7px 0 0;font-size:13px;color:#5C574E;cursor:pointer;
+       border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:5px}
+  .tab:hover{background:#F1ECE2}
+  .tab.on{color:var(--accent);font-weight:650;border-bottom-color:var(--accent);background:#fff}
+  .tab .n{font-style:normal;font-size:10.5px;background:#EDE7DA;color:#6A6459;border-radius:9px;padding:0 5px;font-weight:500}
+  .dgrid{display:grid;grid-template-columns:minmax(0,1fr) 288px;gap:20px;align-items:start}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:16px 18px;margin-bottom:12px}
+  .card .meta{font-size:11.5px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .card h3{margin:6px 0 6px;font-size:15px;line-height:1.45;font-family:var(--serif-en);font-weight:600;letter-spacing:.1px}
+  .card p{margin:0 0 12px;color:#5C574E;font-size:12.5px;line-height:1.65;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card .actions{display:flex;gap:7px;align-items:center}
+  .pill{font-size:11px;padding:2px 7px;border-radius:5px;background:#F0ECE2;color:#6A6459}
+  .pill.hot{background:#FBEBD3;color:#9A5B12}
+  .pill.done{background:var(--accent-soft);color:var(--accent)}
+  .side h2{font-size:12px;letter-spacing:.6px;color:var(--muted);margin:0 0 10px;font-weight:600}
+  .side .mini{display:flex;gap:9px;padding:9px 0;border-bottom:1px dashed var(--line-2)}
+  .side .mini:last-child{border-bottom:0}
+  .side .mini .no{font-family:var(--serif-en);color:#B8AF9E;font-size:12px;width:16px;flex:none;padding-top:1px}
+  .side .mini .t{font-size:12.5px;line-height:1.45}
+  .side .mini .m{font-size:11px;color:var(--muted);margin-top:2px}
+  /* ---------- 文库 ---------- */
+  .library{display:flex;height:100%;min-height:0}
+  .collections{width:224px;flex:none;border-right:1px solid var(--line);padding:14px 10px;overflow:auto;background:#FAF7F1}
+  .collections .group{margin-bottom:16px}
+  .collections .gh{font-size:11px;color:var(--muted);letter-spacing:.5px;padding:0 8px 6px;display:flex;justify-content:space-between}
+  .collections a{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;color:#4A463E;text-decoration:none;font-size:12.5px}
+  .collections a:hover{background:#EFEAE0}
+  .collections a.on{background:#E7EFEB;color:var(--accent);font-weight:600}
+  .collections .dot{width:7px;height:7px;border-radius:2px;flex:none}
+  .collections .n{margin-left:auto;font-size:11px;color:var(--muted);font-weight:400}
+  .ltable{flex:1;min-width:0;display:flex;flex-direction:column}
+  .ltoolbar{display:flex;align-items:center;gap:8px;padding:12px 18px;border-bottom:1px solid var(--line);background:#fff}
+  .ltoolbar .title{font-weight:650;font-size:14px;margin-right:6px}
+  .ltoolbar .grow{flex:1}
+  .list{flex:1;overflow:auto}
+  .row{
+    display:grid;grid-template-columns:26px minmax(0,1fr) 58px 74px 92px 96px;
+    gap:10px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line-2);
+    cursor:default;
+  }
+  .row:hover{background:#FBF8F2}
+  .row.head{font-size:11px;color:var(--muted);letter-spacing:.4px;background:#fff;position:sticky;top:0;z-index:2;border-bottom:1px solid var(--line)}
+  .row .cov{width:22px;height:28px;border-radius:3px;background:linear-gradient(150deg,#DCD3C0,#C9BEA6);flex:none}
+  .row .t{font-size:13px;line-height:1.4;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .a{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .c{font-size:11.5px;color:#6A6459}
+  .bar{height:5px;border-radius:3px;background:#EDE7DA;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent)}
+  .state{font-size:11px;color:var(--muted)}
+  /* ---------- 阅读 ---------- */
+  .reader{display:grid;grid-template-columns:200px minmax(0,1fr) 276px;height:100%;min-height:0}
+  .toc{border-right:1px solid var(--line);padding:16px 10px;overflow:auto;background:#FAF7F1}
+  .toc .gh{font-size:11px;color:var(--muted);letter-spacing:.5px;padding:0 8px 8px}
+  .toc a{display:block;padding:5px 8px;border-radius:6px;color:#4A463E;text-decoration:none;font-size:12.5px;
+         white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .toc a:hover{background:#EFEAE0}
+  .toc a.on{background:#E7EFEB;color:var(--accent);font-weight:600}
+  .toc a.sub{padding-left:20px;font-size:12px;color:#6A6459}
+  .doc{overflow:auto;min-width:0;background:var(--surface)}
+  .dochead{padding:26px 34px 18px;border-bottom:1px solid var(--line-2)}
+  .dochead h1{margin:0 0 8px;font-family:var(--serif-en);font-size:23px;line-height:1.3;font-weight:600}
+  .dochead .au{font-size:12px;color:var(--muted);line-height:1.6}
+  .dochead .au b{color:var(--ink-2);font-weight:600}
+  .dochead .toolbar{display:flex;gap:7px;margin-top:12px;flex-wrap:wrap}
+  .prog{height:3px;background:#EFEAE0;position:sticky;top:0;z-index:3}
+  .prog i{display:block;height:100%;width:100%;background:var(--accent)}
+  .cols{display:grid;grid-template-columns:1fr 1fr}
+  .col-en{border-right:1px dotted var(--line);padding:8px 0 60px}
+  .col-zh{padding:8px 0 60px}
+  .colhd{
+    position:sticky;top:3px;z-index:2;background:rgba(255,255,255,.92);backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:space-between;
+    padding:7px 20px;font-size:10.5px;letter-spacing:.8px;color:var(--muted);
+    border-bottom:1px solid var(--line-2);
+  }
+  .p{padding:12px 20px;position:relative;transition:background .12s}
+  .p:hover{background:var(--hl)}
+  .p.en{font-family:var(--serif-en);font-size:14.5px;line-height:1.78;color:#25231E}
+  .p.zh{font-family:var(--serif-zh);font-size:14.5px;line-height:1.95;color:#26241F}
+  .p .idx{
+    position:absolute;left:6px;top:14px;font-size:10px;color:#C6BDAC;font-family:var(--ui);
+    opacity:0;transition:opacity .12s;
+  }
+  .p:hover .idx{opacity:1}
+  .h2p{padding:16px 20px 6px;font-family:var(--ui);font-size:12px;font-weight:700;letter-spacing:.6px;color:#6A6459}
+  .cite{
+    display:inline-block;font-size:10.5px;color:var(--accent);background:var(--accent-soft);
+    border-radius:4px;padding:0 4px;margin:0 1px;cursor:pointer;vertical-align:1px;position:relative;
+    font-family:var(--ui);
+  }
+  .cite:hover{background:#D9E8E1}
+  .refcard{
+    display:none;position:absolute;left:0;top:20px;width:300px;z-index:9;text-align:left;
+    background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 12px;
+    box-shadow:0 8px 24px rgba(50,40,20,.13);font-family:var(--ui);
+  }
+  .cite:hover .refcard{display:block}
+  .refcard .rt{font-size:12px;font-weight:600;line-height:1.45;color:var(--ink)}
+  .refcard .rm{font-size:11px;color:var(--muted);margin-top:5px}
+  .refcard .ra{display:flex;gap:6px;margin-top:8px}
+  .formula{
+    margin:6px 0 14px;padding:12px 14px;background:#FCFAF5;border:1px solid var(--line-2);
+    border-radius:7px;text-align:center;font-family:var(--serif-en);font-size:15px;color:#2A2822;
+  }
+  .formula .op{color:#6A6459;font-style:italic}
+  .formula sub{font-size:10px}
+  .inspector{border-left:1px solid var(--line);overflow:auto;padding:16px 14px;background:#FAF7F1}
+  .inspector h3{font-size:11px;letter-spacing:.6px;color:var(--muted);margin:0 0 8px;font-weight:600}
+  .block{background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 12px;margin-bottom:12px}
+  .kv{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;color:#4A463E}
+  .kv b{font-weight:600;color:var(--ink)}
+  .term{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:5px 0;border-bottom:1px dashed var(--line-2)}
+  .term:last-child{border-bottom:0}
+  .term .e{font-family:var(--serif-en);color:#4A463E}
+  .term .c{color:var(--accent);font-weight:600}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px}
+  .note{width:100%;min-height:86px;border:1px solid var(--line);border-radius:7px;padding:8px;
+        font:12px/1.6 var(--ui);resize:vertical;outline:0;background:#fff}
+  .note:focus{border-color:#B9CBC4}
+  .tip{font-size:11px;color:var(--muted);line-height:1.6}
+  /* ---------- 状态栏 ---------- */
+  .status{
+    height:28px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;
+    background:#EFEAE0;border-top:1px solid var(--line);font-size:11px;color:#6A6459;
+  }
+  .status .sep{width:1px;height:12px;background:#D6CEBE}
+  .status .ok{color:var(--accent);font-weight:600}
+  .status .grow{flex:1}
+  @media (max-width:1180px){
+    .reader{grid-template-columns:0 minmax(0,1fr) 250px}
+    .toc{display:none}
+    .dgrid{grid-template-columns:minmax(0,1fr)}
+    .side{display:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ 标题栏 ============ -->
+<header class="titlebar">
+  <div class="brand"><span class="logo">译</span> 译见</div>
+  <div class="searchbar">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+      <circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>
+    </svg>
+    <input placeholder="搜索论文、作者、标签，或粘贴 arXiv 链接…">
+    <span class="kbd">Ctrl K</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" title="翻译队列">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.6"/>
+    </svg>
+  </div>
+  <div class="icon-btn" title="设置">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="8" cy="8" r="2.2"/>
+      <path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2"/>
+    </svg>
+  </div>
+  <div class="wincontrols"><span>—</span><span>▢</span><span class="close">✕</span></div>
+</header>
+
+<div class="app">
+  <!-- ============ 左侧导航 ============ -->
+  <nav class="rail">
+    <div class="item active" data-view="discover">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="6"/><path d="M10.6 5.4L9 9 5.4 10.6 7 7z"/>
+      </svg>发现 <span class="count">12</span>
+    </div>
+    <div class="item" data-view="library">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2.2" y="2.6" width="2.6" height="10.8" rx=".8"/>
+        <rect x="6.7" y="2.6" width="2.6" height="10.8" rx=".8"/>
+        <path d="M11.3 3.4l2.4 9.4"/>
+      </svg>文库 <span class="count">128</span>
+    </div>
+    <div class="item" data-view="reader">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 4.2C6.6 3.1 4.6 2.8 2.4 3v9.2c2.2-.2 4.2.1 5.6 1.2 1.4-1.1 3.4-1.4 5.6-1.2V3c-2.2-.2-4.2.1-5.6 1.2z"/>
+        <path d="M8 4.2v9.2"/>
+      </svg>阅读
+    </div>
+    <div class="sep"></div>
+    <div class="cap">进行中</div>
+    <div class="item" data-view="tasks">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2.5 8.5l3 3 7-7"/>
+      </svg>任务队列 <span class="count">2</span>
+    </div>
+    <div class="item" data-view="tasks">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2.5 4h11M2.5 8h11M2.5 12h7"/>
+      </svg>术语表
+    </div>
+    <div class="spacer" style="flex:1"></div>
+    <div class="sep"></div>
+    <div class="tagline">今天已译 3 篇<br>累计节约 ≈ 41 小时</div>
+  </nav>
+
+  <!-- ============ 发现 ============ -->
+  <main class="view" id="view-discover">
+    <div class="discover">
+      <div class="dhead">
+        <h1>发现</h1>
+        <span class="dnote">全站热榜 · 排序直接来自 alphaXiv Hot，客户端只做去重与分类打散</span>
+      </div>
+
+      <div class="tabs">
+        <span class="tab on">全站热榜</span>
+        <span style="flex:1"></span>
+        <span class="dnote">更新于 12:40 · 缓存 30 分钟</span>
+        <button class="btn sm" style="margin-bottom:6px">刷新</button>
+      </div>
+      <div class="dsearch">
+        <input value="cat:cs.CL transformer attention" spellcheck="false">
+        <button class="btn primary">搜索</button>
+      </div>
+      <div class="syntax">
+        语法
+        <code>au:vaswani</code><code>cat:cs.CL</code><code>ti:diffusion</code><code>abs:scaling law</code>
+        <span style="margin-left:auto">数据源 arXiv · Semantic Scholar · OpenAlex</span>
+      </div>
+
+      <div class="chips">
+        <span class="chip on">近 7 天</span>
+        <span class="chip">近 30 天</span>
+        <span class="chip">高引用</span>
+        <span class="chip">cs.CL</span>
+        <span class="chip">cs.LG</span>
+        <span class="chip">cs.CV</span>
+        <span class="chip">已在库中隐藏</span>
+      </div>
+
+      <div class="dgrid">
+        <div>
+          <div class="card">
+            <div class="meta"><span class="pill">arXiv:2410.11842</span><span class="pill hot">↑ 综合热度 98 · 3 源</span>
+              <span>2026-11-02</span><span>·</span><span>cs.CL</span></div>
+            <h3>Scaling Laws for Mixture-of-Experts Language Models</h3>
+            <div class="meta" style="margin-bottom:8px">Zihan Qiu, Zeyu Huang, Bo Zheng, et al.</div>
+            <p>We study how the loss of mixture-of-experts models scales with active parameters, total parameters and training tokens, and derive a unified scaling law that predicts the compute-optimal expert configuration.</p>
+            <div class="actions">
+              <button class="btn sm primary">译入文库</button>
+              <button class="btn sm">收藏</button>
+              <span class="spacer" style="flex:1"></span>
+              <span class="state">引用 41</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="meta"><span class="pill">arXiv:2410.10393</span><span>2026-11-01</span><span>·</span><span>cs.LG</span>
+              <span class="pill done">已在你库中</span></div>
+            <h3>Retrieval-Augmented Generation with Long-Context Attention</h3>
+            <div class="meta" style="margin-bottom:8px">Wei Liu, Anna Petrova, Kenji Sato</div>
+            <p>Long-context models still fail to use retrieved evidence in the middle of the prompt. We propose a positional re-weighting scheme that recovers 62% of the lost accuracy at a fraction of the inference cost.</p>
+            <div class="actions">
+              <button class="btn sm">打开译文</button>
+              <button class="btn sm">收藏</button>
+              <span class="spacer" style="flex:1"></span>
+              <span class="state">引用 12</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="meta"><span class="pill">arXiv:2410.09981</span><span class="pill hot">↑ 综合热度 87 · 2 源</span>
+              <span>2026-10-31</span><span>·</span><span>cs.CV</span></div>
+            <h3>Diffusion Transformers Scale Better Than UNets at High Resolution</h3>
+            <div class="meta" style="margin-bottom:8px">Lena Fischer, Yuki Tanaka, Omar Haddad</div>
+            <p>At 1024px and beyond, the inductive bias of convolutional UNets becomes a liability. A controlled comparison across 14 model sizes shows DiT variants dominate in FID per training FLOP.</p>
+            <div class="actions">
+              <button class="btn sm primary">译入文库</button>
+              <button class="btn sm">收藏</button>
+              <span class="spacer" style="flex:1"></span>
+              <span class="state">引用 6</span>
+            </div>
+          </div>
+        </div>
+
+        <aside class="side">
+          <div class="block" style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:13px 14px">
+            <h2 style="margin-top:0">榜单说明</h2>
+            <div class="tip" style="margin-bottom:10px">排序直接用 alphaXiv 的 Hot（近 7 天），客户端只做三件事：</div>
+            <div class="mini"><span class="no">01</span><div><div class="t">去重合并</div><div class="m">同一篇的 alphaXiv / arXiv / HF 记录合成一条</div></div></div>
+            <div class="mini"><span class="no">02</span><div><div class="t">分类打散</div><div class="m">同一 cs.XX 最多 4 条，防一个方向包场</div></div></div>
+            <div class="mini"><span class="no">03</span><div><div class="t">补中文速览</div><div class="m">取 alphaXiv 中文 overview，没有就显示英文摘要</div></div></div>
+            <div class="tip" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line-2)">
+              刷新不设冷却：点了就请求，失败用上一份快照并标注数据时间。
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============ 文库 ============ -->
+  <main class="view" id="view-library" hidden>
+    <div class="library">
+      <aside class="collections">
+        <div class="group">
+          <div class="gh">文库</div>
+          <a href="#" class="on"><span class="dot" style="background:#2E5F55"></span>全部论文<span class="n">128</span></a>
+          <a href="#"><span class="dot" style="background:#C9BEA6"></span>待读<span class="n">23</span></a>
+          <a href="#"><span class="dot" style="background:#E0A458"></span>在读<span class="n">4</span></a>
+          <a href="#"><span class="dot" style="background:#B45309"></span>已读<span class="n">101</span></a>
+          <a href="#"><span class="dot" style="background:#8A9A5B"></span>已收藏<span class="n">12</span></a>
+        </div>
+        <div class="group">
+          <div class="gh">分类<span style="color:#B8AF9E;cursor:pointer">＋</span></div>
+          <a href="#"><span class="dot" style="background:#4A7C6F"></span>大模型综述<span class="n">34</span></a>
+          <a href="#"><span class="dot" style="background:#7B6FA1"></span>扩散模型<span class="n">12</span></a>
+          <a href="#"><span class="dot" style="background:#A1755B"></span>多模态<span class="n">8</span></a>
+          <a href="#"><span class="dot" style="background:#5B8AA1"></span>强化学习<span class="n">9</span></a>
+          <a href="#"><span class="dot" style="background:#9AA15B"></span>数据集与评测<span class="n">6</span></a>
+        </div>
+        <div class="group">
+          <div class="gh">智能集合</div>
+          <a href="#">⚡ 本周新增且未读<span class="n">7</span></a>
+          <a href="#">⚡ cs.CL 高引 · 未译<span class="n">5</span></a>
+        </div>
+        <div class="group">
+          <div class="gh">标签</div>
+          <a href="#"># transformer<span class="n">21</span></a>
+          <a href="#"># 注意力机制<span class="n">17</span></a>
+          <a href="#"># 预训练<span class="n">14</span></a>
+          <a href="#"># 综述<span class="n">11</span></a>
+        </div>
+      </aside>
+
+      <section class="ltable">
+        <div class="ltoolbar">
+          <span class="title">全部论文</span>
+          <span class="pill">128 篇</span>
+          <div style="flex:1"></div>
+          <button class="btn sm">筛选</button>
+          <button class="btn sm">排序：最近添加</button>
+          <button class="btn sm">批量操作</button>
+          <button class="btn sm primary">＋ 导入</button>
+        </div>
+        <div class="list">
+          <div class="row head">
+            <span></span><span>标题</span><span>年份</span><span>分类</span><span>翻译</span><span>阅读状态</span>
+          </div>
+
+          <div class="row">
+            <span class="cov"></span>
+            <div><div class="t">Attention Is All You Need</div><div class="a">Vaswani, Shazeer, Parmar 等 · NeurIPS 2017</div></div>
+            <span class="c">2017</span><span class="c">cs.CL</span>
+            <div><div class="bar"><i style="width:100%"></i></div><div class="state" style="margin-top:3px">已译 · 100%</div></div>
+            <span class="state">在读 68%</span>
+          </div>
+
+          <div class="row">
+            <span class="cov" style="background:linear-gradient(150deg,#D6DBD0,#BFC7B6)"></span>
+            <div><div class="t">BERT: Pre-training of Deep Bidirectional Transformers</div><div class="a">Devlin, Chang, Lee, Toutanova · NAACL 2019</div></div>
+            <span class="c">2019</span><span class="c">cs.CL</span>
+            <div><div class="bar"><i style="width:100%"></i></div><div class="state" style="margin-top:3px">已译 · 100%</div></div>
+            <span class="state">已读</span>
+          </div>
+
+          <div class="row">
+            <span class="cov" style="background:linear-gradient(150deg,#E2D3C4,#CDB6A0)"></span>
+            <div><div class="t">Denoising Diffusion Probabilistic Models</div><div class="a">Ho, Jain, Abbeel · NeurIPS 2020</div></div>
+            <span class="c">2020</span><span class="c">cs.LG</span>
+            <div><div class="bar"><i style="width:68%;background:#B45309"></i></div><div class="state" style="margin-top:3px;color:#B45309">翻译中 · 68%</div></div>
+            <span class="state">未读</span>
+          </div>
+
+          <div class="row">
+            <span class="cov" style="background:linear-gradient(150deg,#C9D4DC,#A9BBC7)"></span>
+            <div><div class="t">An Image is Worth 16x16 Words: Transformers for Image Recognition</div><div class="a">Dosovitskiy 等 · ICLR 2021</div></div>
+            <span class="c">2021</span><span class="c">cs.CV</span>
+            <div><div class="bar"><i style="width:0%"></i></div><div class="state" style="margin-top:3px">未翻译</div></div>
+            <span class="state">未读</span>
+          </div>
+
+          <div class="row">
+            <span class="cov" style="background:linear-gradient(150deg,#DCD2E0,#C0B2C8)"></span>
+            <div><div class="t">Language Models are Few-Shot Learners</div><div class="a">Brown 等 · NeurIPS 2020</div></div>
+            <span class="c">2020</span><span class="c">cs.CL</span>
+            <div><div class="bar"><i style="width:100%"></i></div><div class="state" style="margin-top:3px">已译 · 100%</div></div>
+            <span class="state">在读 22%</span>
+          </div>
+
+          <div class="row">
+            <span class="cov" style="background:linear-gradient(150deg,#D8DCC8,#BCC2A8)"></span>
+            <div><div class="t">Chain-of-Thought Prompting Elicits Reasoning in LLMs</div><div class="a">Wei 等 · NeurIPS 2022</div></div>
+            <span class="c">2022</span><span class="c">cs.CL</span>
+            <div><div class="bar"><i style="width:100%"></i></div><div class="state" style="margin-top:3px">已译 · 100%</div></div>
+            <span class="state">已读</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ============ 阅读 ============ -->
+  <main class="view" id="view-reader" hidden>
+    <div class="reader">
+      <aside class="toc">
+        <div class="gh">目录</div>
+        <a href="#">摘要</a>
+        <a href="#" class="on">1 引言</a>
+        <a href="#" class="sub">1.1 动机</a>
+        <a href="#" class="sub">1.2 贡献</a>
+        <a href="#">2 背景</a>
+        <a href="#">3 模型架构</a>
+        <a href="#" class="sub">3.1 编码器与解码器</a>
+        <a href="#" class="sub">3.2 注意力</a>
+        <a href="#">4 为什么用自注意力</a>
+        <a href="#">5 训练</a>
+        <a href="#">6 结果</a>
+        <a href="#">7 结论</a>
+        <a href="#">参考文献 <span class="pill" style="margin-left:6px">40</span></a>
+      </aside>
+
+      <article class="doc">
+        <div class="dochead">
+          <h1>Attention Is All You Need</h1>
+          <div class="au"><b>Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, Illia Polosukhin</b><br>
+            NeurIPS 2017 · arXiv:1706.03762 · 译文由 deepseek-chat 生成 · 已校 3 段</div>
+          <div class="toolbar">
+            <button class="btn sm">仅原文</button>
+            <button class="btn sm primary">双语对照</button>
+            <button class="btn sm">仅译文</button>
+            <button class="btn sm">导出 PDF</button>
+            <button class="btn sm">BibTeX</button>
+            <span style="flex:1"></span>
+            <span class="state">进度 68% · 剩 14 分钟</span>
+          </div>
+        </div>
+
+        <div class="prog"><i></i></div>
+
+        <div class="cols">
+          <div class="col-en">
+            <div class="colhd"><span>ORIGINAL</span><span>EN</span></div>
+
+            <div class="h2p">Abstract</div>
+            <div class="p en"><span class="idx">01</span>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.</div>
+            <div class="p en"><span class="idx">02</span>Recurrent models typically factor computation along the symbol positions of the input and output sequences. Aligning the positions to steps in computation time, they generate a sequence of hidden states <i>h<sub>t</sub></i> as a function of the previous hidden state <i>h<sub>t−1</sub></i> and the input for position <i>t</i>.</div>
+            <div class="p en"><span class="idx">03</span>An attention function can be described as mapping a query and a set of key-value pairs to an output, where the query, keys, values, and output are all vectors. The output is computed as a weighted sum of the values, where the weight assigned to each value is computed by a compatibility function of the query with the corresponding key
+              <span class="cite">[1]<span class="refcard"><div class="rt">Neural Machine Translation by Jointly Learning to Align and Translate</div><div class="rm">Bahdanau, Cho, Bengio · ICLR 2015 · 引用 24,318</div><div class="ra"><button class="btn sm primary">译入文库</button><button class="btn sm">查看原文</button></div></span></span>.</div>
+            <div class="formula">
+              Attention(<i>Q</i>, <i>K</i>, <i>V</i>) = softmax( <i>QK</i><sup>T</sup> / √<i>d</i><sub>k</sub> ) <i>V</i>
+            </div>
+          </div>
+
+          <div class="col-zh">
+            <div class="colhd"><span>中文</span><span>译 · 已校 3 处</span></div>
+
+            <div class="h2p">摘要</div>
+            <div class="p zh"><span class="idx">01</span>主流的序列转换模型都建立在包含编码器与解码器的复杂循环或卷积神经网络之上。表现最好的模型还会通过注意力机制把编码器与解码器连接起来。我们提出一种全新的简单网络架构——Transformer，它完全基于注意力机制，彻底摒弃了循环与卷积。</div>
+            <div class="p zh"><span class="idx">02</span>循环模型通常沿输入序列与输出序列的符号位置来分解计算。将位置与计算时间步对齐后，它们会生成一个隐藏状态序列 <i>h<sub>t</sub></i>，其取值是前一隐藏状态 <i>h<sub>t−1</sub></i> 与位置 <i>t</i> 处输入的函数。</div>
+            <div class="p zh"><span class="idx">03</span>注意力函数可以描述为：将一个查询（query）与一组键值对（key-value）映射为输出，其中查询、键、值和输出都是向量。输出是各个值的加权和，每个值所分配的权重由查询与相应键的相容性函数计算得到<span class="cite">[1]</span>。</div>
+            <div class="formula" style="font-family:var(--serif-zh)">
+              注意力(<i>Q</i>, <i>K</i>, <i>V</i>) = softmax( <i>QK</i><sup>T</sup> / √<i>d</i><sub>k</sub> ) <i>V</i>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <aside class="inspector">
+        <h3>当前段落</h3>
+        <div class="block">
+          <div class="kv"><span>位置</span><b>1 引言 · 第 3 段</b></div>
+          <div class="kv"><span>状态</span><b style="color:var(--accent)">已译 · 缓存命中</b></div>
+          <div class="kv"><span>模型</span><b>deepseek-chat</b></div>
+          <div class="kv"><span>用量</span><b>312 tokens</b></div>
+        </div>
+
+        <div class="btns">
+          <button class="btn sm">重译本段</button>
+          <button class="btn sm">编辑译文</button>
+          <button class="btn sm">复制原文</button>
+          <button class="btn sm">复制 LaTeX</button>
+        </div>
+
+        <h3>术语（本段命中 4）</h3>
+        <div class="block">
+          <div class="term"><span class="e">attention</span><span class="c">注意力</span></div>
+          <div class="term"><span class="e">query</span><span class="c">查询</span></div>
+          <div class="term"><span class="e">key</span><span class="c">键</span></div>
+          <div class="term"><span class="e">value</span><span class="c">值</span></div>
+        </div>
+
+        <h3>笔记</h3>
+        <textarea class="note" placeholder="写点什么…（Ctrl+Enter 保存）"></textarea>
+        <div class="tip" style="margin-top:8px">笔记绑定到段落，导出 Markdown 时按章节归组。</div>
+
+        <h3 style="margin-top:16px">相关工作</h3>
+        <div class="block">
+          <div class="mini" style="border:0;padding:0">
+            <div class="t" style="font-size:12px">Neural Machine Translation by Jointly Learning to Align and Translate</div>
+            <div class="m" style="font-size:11px;color:var(--muted);margin-top:3px">Bahdanau 等 · ICLR 2015</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<!-- ============ 状态栏 ============ -->
+<footer class="status">
+  <span class="ok">● 就绪</span>
+  <span class="sep"></span>
+  <span>模型 deepseek-chat</span>
+  <span class="sep"></span>
+  <span>本次 12.4k tokens ≈ ¥0.032</span>
+  <span class="sep"></span>
+  <span>缓存命中 61%</span>
+  <span class="grow"></span>
+  <span>zh.pdf 编译完成 · 21:04</span>
+  <span class="sep"></span>
+  <span>本地库 128 篇 · 3.2 GB</span>
+</footer>
+
+<script>
+  const views = ['discover','library','reader'];
+  const items = document.querySelectorAll('.rail .item[data-view]');
+  function show(name){
+    views.forEach(v=>document.getElementById('view-'+v).hidden = (v!==name));
+    items.forEach(i=>i.classList.toggle('active', i.dataset.view===name));
+    document.querySelector('.view:not([hidden])').scrollTop = 0;
+  }
+  items.forEach(i=>i.addEventListener('click',()=>{
+    if(views.includes(i.dataset.view)) show(i.dataset.view);
+    else { i.classList.add('active'); setTimeout(()=>i.classList.remove('active'),600); }
+  }));
+  document.querySelector('.searchbar input').addEventListener('keydown',e=>{
+    if(e.key==='Enter'){ show('discover'); }
+  });
+  document.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.querySelector('.searchbar input').focus();}
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+name: Bug 报告
+description: 编译失败、界面异常、任务卡住
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        编译类问题请一定附上日志，否则很难复现。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 期望的结果 vs 实际的结果
+    validations:
+      required: true
+
+  - type: input
+    id: arxiv
+    attributes:
+      label: 复现用的 arXiv ID
+      placeholder: "1706.03762"
+
+  - type: textarea
+    id: log
+    attributes:
+      label: 日志
+      description: data/jobs/<job_id>/run.log 的最后 80 行
+      render: text
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: texlate doctor 输出
+      render: text
+
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      placeholder: "Windows 11 23H2 / Python 3.12.7 / tectonic 0.17.0"
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 自查
+      options:
+        - label: 已确认 data/ 目录里没有敏感信息
+          required: true

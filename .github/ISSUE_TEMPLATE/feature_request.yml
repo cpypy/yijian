@@ -1,0 +1,30 @@
+name: 功能建议
+description: 想要的能力、想改的体验
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的问题
+      description: 描述场景，不要直接给方案
+      placeholder: 我读综述时想在译文里直接查术语…
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你希望的解法
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 属于哪块
+      options:
+        - 翻译质量
+        - 阅读器
+        - 文库 / 分类
+        - 发现
+        - 打包与安装
+        - 其他
