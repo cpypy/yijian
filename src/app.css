@@ -60,6 +60,7 @@ button.ghost { height: 28px; padding: 0 10px; font-size: 12px; }
 .bar { flex: 1; height: 4px; background: #ece6d9; border-radius: 2px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
 .pct { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.elapsed { font-variant-numeric: tabular-nums; color: var(--muted); }
 
 .log {
   flex: 1; margin: 0; padding: 12px;

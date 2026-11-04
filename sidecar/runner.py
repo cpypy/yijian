@@ -117,11 +117,24 @@ def _env() -> dict[str, str]:
         runtime = APP_DIR / ".runtime"
         if runtime.exists():
             env["PYTHONPATH"] = str(runtime)
+
+    # 代理由用户自行配置（TUN 模式或系统级环境变量），这里不自动推断
     env["PYTHONIOENCODING"] = "utf-8"
     env["TEXLATE_DATA_DIR"] = str(TEXLATE_DATA)
     env["TEXLATE_CACHE_DIR"] = str(TEXLATE_CACHE)
     env["TECTONIC_CACHE_DIR"] = str(TECTONIC_CACHE)
     return env
+
+
+def _read_from(path: Path, offset: int) -> tuple[str, int]:
+    """从 offset 读到末尾，返回新增文本与新的 offset。"""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            fh.seek(offset)
+            chunk = fh.read()
+            return chunk, fh.tell()
+    except FileNotFoundError:
+        return "", offset
 
 
 def _tail(path: Path, limit: int = 20000) -> str:
@@ -166,14 +179,22 @@ def run(arxiv_id: str) -> int:
                 cmd, stdout=fh, stderr=subprocess.STDOUT, env=_env(), cwd=str(work)
             )
             last = ("", 0.0)
+            offset = 0
             while proc.poll() is None:
-                text = _tail(log_path)
-                stage, pct = _stage(text)
+                chunk, offset = _read_from(log_path, offset)
+                for line in chunk.splitlines():
+                    if line.strip():
+                        emit(event="log", line=line)
+                stage, pct = _stage(_tail(log_path))
                 if (stage, pct) != last:
                     emit(event="stage", stage=stage, progress=pct)
                     last = (stage, pct)
-                time.sleep(1.2)
+                time.sleep(1.0)
             rc = proc.returncode
+            rest, _ = _read_from(log_path, offset)
+            for line in rest.splitlines():
+                if line.strip():
+                    emit(event="log", line=line)
     except Exception as exc:  # noqa: BLE001
         emit(event="error", message=f"{type(exc).__name__}: {exc}")
         return 1

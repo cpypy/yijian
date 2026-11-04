@@ -51,6 +51,37 @@ fn engine_path(app: &AppHandle) -> PathBuf {
     candidates.remove(0)
 }
 
+#[derive(Default)]
+struct RunState {
+    pid: std::sync::Mutex<Option<u32>>,
+}
+
+#[tauri::command]
+fn cancel_run(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<RunState>();
+    let pid = state.pid.lock().map_err(|e| e.to_string())?.take();
+    if let Some(pid) = pid {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).spawn();
+        }
+        let _ = app.emit(
+            "engine-event",
+            serde_json::json!({ "event": "error", "message": "已取消" }),
+        );
+        let _ = app.emit("engine-exit", ());
+    }
+    Ok(())
+}
+
 fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
     let exe = engine_path(app);
     if !exe.exists() {
@@ -71,6 +102,12 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
 
     let mut child = command.spawn().map_err(|e| e.to_string())?;
 
+    if let Some(state) = app.try_state::<RunState>() {
+        if let Ok(mut slot) = state.pid.lock() {
+            *slot = Some(child.id());
+        }
+    }
+
     if let Some(stdout) = child.stdout.take() {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             match serde_json::from_str::<serde_json::Value>(&line) {
@@ -84,6 +121,11 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
         }
     }
     let _ = child.wait();
+    if let Some(state) = app.try_state::<RunState>() {
+        if let Ok(mut slot) = state.pid.lock() {
+            *slot = None;
+        }
+    }
     Ok(())
 }
 
@@ -136,7 +178,8 @@ fn open_pdf(path: String) -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![start_run, open_pdf])
+        .manage(RunState::default())
+        .invoke_handler(tauri::generate_handler![start_run, cancel_run, open_pdf])
         .run(tauri::generate_context!())
         .expect("启动失败");
 }
