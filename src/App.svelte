@@ -41,6 +41,8 @@
   let segments: Segment[] = [];
   let mode: "both" | "en" | "zh" = "both";
   let selected = -1;
+  let readerQuery = "";
+  let openedFromLibrary = false;
 
   type FeedItem = {
     id: string;
@@ -145,6 +147,14 @@
 
   $: tree = buildTree(collections);
   $: visibleDocs = filterDocs(library, collections, activeCollection, query);
+
+  $: shownSegments = (() => {
+    const q = readerQuery.trim().toLowerCase();
+    if (!q) return segments;
+    return segments.filter(
+      (s) => s.en.toLowerCase().includes(q) || s.zh.toLowerCase().includes(q)
+    );
+  })();
 
   function esc(s: string): string {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -333,6 +343,8 @@
   async function openDoc(d: Doc) {
     arxivId = d.arxivId;
     currentDocId = d.id;
+    openedFromLibrary = true;
+    readerQuery = "";
     if (!d.segments) {
       nav = "work";
       view = "work";
@@ -473,6 +485,8 @@
     pdf = "";
     segments = [];
     notes = {};
+    openedFromLibrary = false;
+    readerQuery = "";
     view = "work";
     nav = "work";
     startedAt = Date.now();
@@ -791,9 +805,20 @@
 {:else}
   <main class="reader">
     <div class="rbar">
-      <button class="ghost" on:click={() => (view = "work")}>← 返回</button>
+      <button
+        class="ghost"
+        on:click={() => {
+          view = "work";
+          if (openedFromLibrary) nav = "library";
+        }}
+      >
+        ← 返回
+      </button>
       <span class="rid">{arxivId}</span>
-      <span class="rmeta">{segments.length} 段</span>
+      <span class="rmeta">
+        {readerQuery.trim() ? `${shownSegments.length}/${segments.length}` : `${segments.length} 段`}
+      </span>
+      <input class="rsearch" bind:value={readerQuery} placeholder="文内搜索…" />
       <span class="grow"></span>
       <button class="seg-btn" class:on={mode === "en"} on:click={() => toggleMode("en")}>原文</button>
       <button class="seg-btn" class:on={mode === "both"} on:click={() => toggleMode("both")}>对照</button>
@@ -811,7 +836,7 @@
       on:scroll={onDocScroll}
       on:click|capture={onDocClick}
     >
-      {#each segments as s (s.seq)}
+      {#each shownSegments as s (s.seq)}
         <div
           class="seg"
           class:title={s.kind === "section_title"}

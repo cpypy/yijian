@@ -523,3 +523,16 @@ main.library { flex-direction: row; }
   background: #fff;
   outline: none;
 }
+
+/* ---------- 文内搜索 ---------- */
+.rsearch {
+  width: 180px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 8px;
+  font: 12px "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  outline: none;
+  background: #fff;
+}
+.rsearch:focus { border-color: #b9cbc4; box-shadow: 0 0 0 3px #e7f0ec; }
