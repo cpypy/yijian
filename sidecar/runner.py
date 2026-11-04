@@ -38,6 +38,9 @@ TEXLATE_DATA = DATA / "texlate"
 TEXLATE_CACHE = DATA / "texlate-cache"
 TECTONIC_CACHE = DATA / "tectonic-cache"
 
+#: 安装包里预置的 TeX 宏包缓存（resources/texbundle）
+BUNDLED_TEXBUNDLE = APP_DIR.parent / "texbundle"
+
 STAGES = [
     ("fetch", 8, re.compile(r"arxiv|fetch|下载|获取|拉取", re.I)),
     ("parse", 22, re.compile(r"parse|segment|解析|分块|章节", re.I)),
@@ -99,6 +102,22 @@ TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
 def _prepare() -> None:
     for path in (TEXLATE_DATA, TEXLATE_CACHE, TECTONIC_CACHE, JOBS):
         path.mkdir(parents=True, exist_ok=True)
+
+    # 首次运行：把安装包预置的宏包缓存合并到本地，避免联网拉 bundle。
+    # 用「缺什么补什么」而不是「空目录才拷」，这样半截缓存也能被补齐。
+    if BUNDLED_TEXBUNDLE.exists():
+        copied = 0
+        for item in BUNDLED_TEXBUNDLE.rglob("*"):
+            if not item.is_file():
+                continue
+            target = TECTONIC_CACHE / item.relative_to(BUNDLED_TEXBUNDLE)
+            if target.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+            copied += 1
+        if copied:
+            emit(event="log", line=f"已载入预置 TeX 缓存：{copied} 个文件")
 
     target = TEXLATE_DATA / "tools" / TECTONIC_NAME
     if not target.exists():

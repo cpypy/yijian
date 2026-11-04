@@ -29,6 +29,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare prebuilt TeX bundle
+        shell: bash
+        run: |
+          if [ -f assets/texbundle.tar.gz ]; then
+            mkdir -p src-tauri/texbundle
+            python - <<'PY'
+          import tarfile
+          with tarfile.open("assets/texbundle.tar.gz") as tf:
+              tf.extractall("src-tauri/texbundle")
+          print("texbundle extracted")
+          PY
+            du -sh src-tauri/texbundle
+          else
+            echo "没有预置 TeX 缓存，首次运行会联网下载"
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
