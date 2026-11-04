@@ -18,8 +18,18 @@ def main() -> int:
     last = ""
     run = None
     with httpx.Client(proxy=PROXY, timeout=30) as client:
+
+        def get(url: str):
+            for _ in range(6):
+                try:
+                    return client.get(url).json()
+                except Exception as exc:  # noqa: BLE001
+                    print("retry:", type(exc).__name__, flush=True)
+                    time.sleep(5)
+            raise SystemExit("GitHub API 连续失败")
+
         while time.time() < deadline:
-            runs = client.get(f"{BASE}/runs?per_page=1").json()["workflow_runs"]
+            runs = get(f"{BASE}/runs?per_page=1")["workflow_runs"]
             run = runs[0]
             state = f"{run['status']}/{run['conclusion']}"
             if state != last:
@@ -34,7 +44,7 @@ def main() -> int:
             return 1
 
         print("URL", run["html_url"])
-        jobs = client.get(f"{BASE}/runs/{run['id']}/jobs").json()["jobs"]
+        jobs = get(f"{BASE}/runs/{run['id']}/jobs")["jobs"]
         for job in jobs:
             print(f"\n[{job['name']}] {job['conclusion']}")
             for step in job["steps"]:
