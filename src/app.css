@@ -219,3 +219,68 @@ main.reader {
 .math { font-size: 1.02em; }
 .math .katex { font-size: 1.02em; }
 .url { color: #2e5f55; word-break: break-all; }
+
+/* ---------- 术语 / 笔记 ---------- */
+.seg { position: relative; }
+
+mark.term {
+  background: #eaf2ee;
+  color: #1f4a41;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.note-btn {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #b3ab9c;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.seg:hover .note-btn { opacity: 1; }
+.note-btn:hover { background: #f1ede5; color: #5c564c; }
+
+.note-view {
+  margin-top: 6px;
+  padding: 6px 9px;
+  background: #fdf8e6;
+  border-left: 2px solid #e0c56a;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: #6b5a25;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+.note-editor { padding: 4px 30px 12px; background: #fbf8f2; }
+.note-editor textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font: 12.5px/1.6 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  resize: vertical;
+  outline: none;
+  background: #fff;
+}
+.note-editor textarea:focus { border-color: #b9cbc4; box-shadow: 0 0 0 3px #e7f0ec; }
+
+.panel textarea {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font: 12.5px/1.6 Consolas, monospace;
+  outline: none;
+  resize: vertical;
+}
+.panel textarea:focus { border-color: #b9cbc4; box-shadow: 0 0 0 3px #e7f0ec; }
+.panel code { background: #f1ede5; border-radius: 3px; padding: 0 3px; }

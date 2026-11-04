@@ -159,14 +159,49 @@ fn start_run(app: AppHandle, arxiv_id: String) -> Result<(), String> {
     Ok(())
 }
 
-fn settings_path() -> PathBuf {
+fn app_dir() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    let dir = if base.is_empty() {
+    if base.is_empty() {
         PathBuf::from(".")
     } else {
         PathBuf::from(base).join("Yijian")
-    };
-    dir.join("settings.json")
+    }
+}
+
+fn settings_path() -> PathBuf {
+    app_dir().join("settings.json")
+}
+
+#[tauri::command]
+fn load_glossary() -> Result<String, String> {
+    let path = app_dir().join("glossary.json");
+    if !path.exists() {
+        return Ok("[]".into());
+    }
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_glossary(text: String) -> Result<(), String> {
+    let path = app_dir().join("glossary.json");
+    std::fs::create_dir_all(app_dir()).map_err(|e| e.to_string())?;
+    std::fs::write(path, text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_notes(doc: String) -> Result<String, String> {
+    let path = app_dir().join("notes").join(format!("{doc}.json"));
+    if !path.exists() {
+        return Ok("{}".into());
+    }
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_notes(doc: String, text: String) -> Result<(), String> {
+    let dir = app_dir().join("notes");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(format!("{doc}.json")), text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -236,7 +271,11 @@ fn main() {
             open_pdf,
             read_segments,
             load_settings,
-            save_settings
+            save_settings,
+            load_glossary,
+            save_glossary,
+            load_notes,
+            save_notes
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");

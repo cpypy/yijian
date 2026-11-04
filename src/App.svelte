@@ -32,6 +32,12 @@
   let showSettings = false;
   let savedTip = "";
   let settings: Settings = { base_url: "", model: "", api_key: "" };
+  let glossaryText = "";
+  let terms: string[] = [];
+
+  let notes: Record<number, string> = {};
+  let noteOpen = -1;
+  let noteTimer: ReturnType<typeof setTimeout> | null = null;
 
   const STAGE_LABEL: Record<string, string> = {
     idle: "就绪",
@@ -45,6 +51,16 @@
 
   function esc(s: string): string {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function markTerms(escaped: string): string {
+    let out = escaped;
+    for (const term of terms) {
+      const safe = esc(term);
+      if (safe.length < 2) continue;
+      out = out.split(safe).join(`<mark class="term">${safe}</mark>`);
+    }
+    return out;
   }
 
   function renderToken(kind: string, raw: string): string {
@@ -69,23 +85,34 @@
       const url = raw.replace(/^\\url\{|\}$/g, "");
       return `<a class="url" href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a>`;
     }
-    // LABEL / CMD 是锚点与排版指令，阅读时不可见
     return "";
   }
 
-  /** 把 [[MATH_1]] 之类的占位符还原成公式、引用 chip、链接 */
   function renderSegment(text: string, ph: Record<string, string>): string {
     const re = /\[\[([A-Z]+)_\d+\]\]/g;
     let out = "";
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
-      out += esc(text.slice(last, m.index));
+      out += markTerms(esc(text.slice(last, m.index)));
       out += renderToken(m[1], ph[m[0]] ?? "");
       last = m.index + m[0].length;
     }
-    out += esc(text.slice(last));
+    out += markTerms(esc(text.slice(last)));
     return out;
+  }
+
+  function parseGlossary(text: string): { en: string; zh: string }[] {
+    return text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"))
+      .map((line) => {
+        const idx = line.indexOf(",");
+        if (idx < 0) return { en: line, zh: "" };
+        return { en: line.slice(0, idx).trim(), zh: line.slice(idx + 1).trim() };
+      })
+      .filter((it) => it.en && it.zh);
   }
 
   function pushLog(line: string) {
@@ -103,19 +130,53 @@
         api_key: s.api_key ?? "",
       };
     } catch {
-      /* 忽略：首次运行没有设置文件 */
+      /* 首次运行没有设置文件 */
+    }
+    try {
+      const raw = await invoke<string>("load_glossary");
+      const items = JSON.parse(raw || "[]");
+      if (Array.isArray(items)) {
+        glossaryText = items.map((it: any) => `${it.en},${it.zh}`).join("\n");
+        terms = items.map((it: any) => it.en).filter(Boolean);
+      }
+    } catch {
+      /* 忽略 */
     }
   }
 
   async function saveSettings() {
     try {
       await invoke("save_settings", { value: settings });
+      const items = parseGlossary(glossaryText);
+      await invoke("save_glossary", { text: JSON.stringify(items) });
+      terms = items.map((it) => it.en);
       savedTip = "已保存";
       setTimeout(() => (savedTip = ""), 1500);
       showSettings = false;
     } catch (e) {
       savedTip = "保存失败：" + String(e);
     }
+  }
+
+  async function loadNotes() {
+    try {
+      const raw = await invoke<string>("load_notes", { doc: arxivId.trim() });
+      notes = JSON.parse(raw || "{}");
+    } catch {
+      notes = {};
+    }
+  }
+
+  function setNote(seq: number, value: string) {
+    notes = { ...notes, [seq]: value };
+    if (noteTimer) clearTimeout(noteTimer);
+    noteTimer = setTimeout(async () => {
+      try {
+        await invoke("save_notes", { doc: arxivId.trim(), text: JSON.stringify(notes) });
+      } catch {
+        /* 忽略 */
+      }
+    }, 600);
   }
 
   onMount(() => {
@@ -149,6 +210,7 @@
             if (segments.length) {
               view = "read";
               selected = -1;
+              await loadNotes();
             }
           } catch (err) {
             pushLog("读取段落失败：" + String(err));
@@ -168,6 +230,7 @@
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
+    if (noteTimer) clearTimeout(noteTimer);
   });
 
   async function start() {
@@ -178,6 +241,7 @@
     logs = [];
     pdf = "";
     segments = [];
+    notes = {};
     view = "work";
     startedAt = Date.now();
     elapsed = 0;
@@ -215,7 +279,7 @@
   <span class="hint">arXiv 论文 → 中英对照阅读</span>
   <span class="grow"></span>
   {#if savedTip}<span class="saved">{savedTip}</span>{/if}
-  <button class="icon" title="模型设置" on:click={() => (showSettings = true)}>⚙</button>
+  <button class="icon" title="模型与术语" on:click={() => (showSettings = true)}>⚙</button>
 </header>
 
 {#if view === "work"}
@@ -282,6 +346,13 @@
           tabindex="0"
           on:keydown={(e) => e.key === "Enter" && (selected = s.seq)}
         >
+          <button
+            class="note-btn"
+            title="笔记"
+            on:click|stopPropagation={() => (noteOpen = noteOpen === s.seq ? -1 : s.seq)}
+          >
+            ✎
+          </button>
           <div class="en">{@html renderSegment(s.en, s.ph)}</div>
           <div class="zh">
             {#if s.zh}
@@ -289,8 +360,21 @@
             {:else}
               （未翻译）
             {/if}
+            {#if notes[s.seq]}
+              <div class="note-view">{notes[s.seq]}</div>
+            {/if}
           </div>
         </div>
+        {#if noteOpen === s.seq}
+          <div class="note-editor">
+            <textarea
+              rows="3"
+              placeholder="给这一段写点笔记…（自动保存）"
+              value={notes[s.seq] ?? ""}
+              on:input={(e) => setNote(s.seq, (e.target as HTMLTextAreaElement).value)}
+            ></textarea>
+          </div>
+        {/if}
       {/each}
     </div>
   </main>
@@ -298,8 +382,8 @@
 
 {#if showSettings}
   <div class="overlay" on:click={() => (showSettings = false)} role="presentation">
-    <div class="panel" role="dialog" aria-label="模型设置" on:click|stopPropagation>
-      <h2>模型设置</h2>
+    <div class="panel" role="dialog" aria-label="设置" on:click|stopPropagation>
+      <h2>模型与术语</h2>
       <label>
         Base URL
         <input bind:value={settings.base_url} placeholder="https://api.deepseek.com/v1" />
@@ -312,7 +396,15 @@
         API Key
         <input type="password" bind:value={settings.api_key} placeholder="sk-..." />
       </label>
-      <p class="tip">兼容 OpenAI 的端点都可用。Key 保存在本机 settings.json，不会上传。</p>
+      <label>
+        术语表（每行 <code>英文,中文</code>）
+        <textarea
+          rows="5"
+          bind:value={glossaryText}
+          placeholder="transformer,变换器&#10;attention,注意力"
+        ></textarea>
+      </label>
+      <p class="tip">Key 存在本机 settings.json；术语表会写进引擎，影响后续所有翻译。</p>
       <div class="actions">
         <button on:click={() => (showSettings = false)}>取消</button>
         <button class="primary" on:click={saveSettings}>保存</button>

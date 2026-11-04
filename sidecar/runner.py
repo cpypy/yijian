@@ -181,10 +181,40 @@ def _wait_server(client, timeout: float = 40.0) -> bool:
     return False
 
 
+def _sync_glossary() -> None:
+    """把应用里的术语表写成 texlate 认识的 glossary.yaml（优先级最高的用户表）。"""
+    src = BASE / "glossary.json"
+    if not src.exists():
+        return
+    try:
+        items = json.loads(src.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(items, list):
+        return
+
+    lines = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        en = str(item.get("en") or "").strip()
+        zh = str(item.get("zh") or "").strip()
+        if not en or not zh:
+            continue
+        # JSON 字符串同时是合法的 YAML 标量
+        lines.append(f"{json.dumps(en, ensure_ascii=False)}: {json.dumps(zh, ensure_ascii=False)}")
+
+    target = TEXLATE_DATA / "glossary.yaml"
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if lines:
+        emit(event="log", line=f"已应用术语表：{len(lines)} 条")
+
+
 def run(arxiv_id: str) -> int:
     import httpx
 
     _prepare()
+    _sync_glossary()
     job_id = uuid.uuid4().hex[:12]
     work = JOBS / job_id
     work.mkdir(parents=True, exist_ok=True)
