@@ -198,3 +198,24 @@ main.reader {
 .panel .tip { margin: 0; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
 .panel .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .panel .actions button { height: 32px; padding: 0 14px; border-radius: 7px; }
+
+/* ---------- 公式与引用 ---------- */
+.chip {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 5px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: #eef3f0;
+  color: #2e5f55;
+  vertical-align: 1px;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip.ref { background: #f2eef7; color: #5b4b74; }
+.math { font-size: 1.02em; }
+.math .katex { font-size: 1.02em; }
+.url { color: #2e5f55; word-break: break-all; }

@@ -2,8 +2,16 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
+  import * as katex from "katex";
 
-  type Segment = { seq: number; kind: string; status: string; en: string; zh: string };
+  type Segment = {
+    seq: number;
+    kind: string;
+    status: string;
+    en: string;
+    zh: string;
+    ph: Record<string, string>;
+  };
   type Settings = { base_url: string; model: string; api_key: string };
 
   let arxivId = "1706.03762";
@@ -34,6 +42,51 @@
     judge: "判定",
     done: "完成",
   };
+
+  function esc(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function renderToken(kind: string, raw: string): string {
+    if (kind === "MATH") {
+      const tex = raw.replace(/^\$+|\$+$/g, "");
+      try {
+        return `<span class="math">${katex.renderToString(tex, {
+          throwOnError: false,
+          displayMode: false,
+        })}</span>`;
+      } catch {
+        return `<code>${esc(tex)}</code>`;
+      }
+    }
+    if (kind === "CITE" || kind === "REF") {
+      const key = raw.replace(/^\\[a-zA-Z]+\{|\}$/g, "");
+      return `<span class="chip ${kind.toLowerCase()}" title="${esc(raw)}">${esc(
+        key.slice(0, 20)
+      )}</span>`;
+    }
+    if (kind === "URL") {
+      const url = raw.replace(/^\\url\{|\}$/g, "");
+      return `<a class="url" href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a>`;
+    }
+    // LABEL / CMD 是锚点与排版指令，阅读时不可见
+    return "";
+  }
+
+  /** 把 [[MATH_1]] 之类的占位符还原成公式、引用 chip、链接 */
+  function renderSegment(text: string, ph: Record<string, string>): string {
+    const re = /\[\[([A-Z]+)_\d+\]\]/g;
+    let out = "";
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      out += esc(text.slice(last, m.index));
+      out += renderToken(m[1], ph[m[0]] ?? "");
+      last = m.index + m[0].length;
+    }
+    out += esc(text.slice(last));
+    return out;
+  }
 
   function pushLog(line: string) {
     logs = [...logs.slice(-400), line];
@@ -91,6 +144,7 @@
               status: c.status || "",
               en: c.en || "",
               zh: c.zh || "",
+              ph: c.ph ?? {},
             }));
             if (segments.length) {
               view = "read";
@@ -228,8 +282,14 @@
           tabindex="0"
           on:keydown={(e) => e.key === "Enter" && (selected = s.seq)}
         >
-          <div class="en">{s.en}</div>
-          <div class="zh">{s.zh || "（未翻译）"}</div>
+          <div class="en">{@html renderSegment(s.en, s.ph)}</div>
+          <div class="zh">
+            {#if s.zh}
+              {@html renderSegment(s.zh, s.ph)}
+            {:else}
+              （未翻译）
+            {/if}
+          </div>
         </div>
       {/each}
     </div>

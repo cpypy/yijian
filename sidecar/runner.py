@@ -250,10 +250,36 @@ def run(arxiv_id: str) -> int:
                     emit(event="error", message=f"任务失败：{msg}")
                     return 1
 
-            chunks_resp = client.get(f"/api/task/{task_id}/chunks")
-            chunks = chunks_resp.json() if chunks_resp.status_code == 200 else {"chunks": []}
-            segments_path.write_text(json.dumps(chunks, ensure_ascii=False), encoding="utf-8")
-            count = len(chunks.get("chunks") or [])
+            # dual.json 里有每个占位符的原始 LaTeX（公式/引用），阅读器要靠它渲染
+            dual = TEXLATE_DATA / "tasks" / task_id / "dual.json"
+            chunks: list[dict] = []
+            if dual.exists():
+                try:
+                    doc = json.loads(dual.read_text(encoding="utf-8"))
+                    chunks = [
+                        {
+                            "seq": c.get("seq"),
+                            "kind": c.get("kind") or "para",
+                            "status": c.get("status") or "",
+                            "en": c.get("en") or "",
+                            "zh": c.get("zh") or "",
+                            "ph": c.get("ph") or {},
+                        }
+                        for c in doc.get("chunks", [])
+                    ]
+                except json.JSONDecodeError:
+                    chunks = []
+
+            if not chunks:
+                resp_chunks = client.get(f"/api/task/{task_id}/chunks")
+                if resp_chunks.status_code == 200:
+                    chunks = resp_chunks.json().get("chunks", [])
+
+            segments_path.write_text(
+                json.dumps({"chunks": chunks, "total": len(chunks)}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            count = len(chunks)
 
             pdf = TEXLATE_DATA / "tasks" / task_id / "zh.pdf"
             emit(
