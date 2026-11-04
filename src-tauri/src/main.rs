@@ -240,6 +240,28 @@ fn save_settings(value: serde_json::Value) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn discover(app: AppHandle) -> Result<String, String> {
+    let exe = engine_path(&app);
+    if !exe.exists() {
+        return Err(format!("引擎不存在：{}", exe.display()));
+    }
+
+    let mut command = Command::new(&exe);
+    command.arg("--discover");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = command.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[tauri::command]
 fn read_segments(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
@@ -292,7 +314,8 @@ fn main() {
             load_notes,
             save_notes,
             load_library,
-            save_library
+            save_library,
+            discover
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");

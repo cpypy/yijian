@@ -35,10 +35,25 @@
   let timer: ReturnType<typeof setInterval> | null = null;
 
   let view: "work" | "read" = "work";
-  let nav: "work" | "library" = "work";
+  let nav: "work" | "library" | "discover" = "work";
   let segments: Segment[] = [];
   let mode: "both" | "en" | "zh" = "both";
   let selected = -1;
+
+  type FeedItem = {
+    id: string;
+    arxiv_id: string;
+    title: string;
+    authors: string;
+    abstract: string;
+    votes?: number;
+    visits?: number;
+  };
+  let feed: FeedItem[] = [];
+  let feedLoading = false;
+  let feedError = "";
+  let lastTokens = 0;
+  let lastSeconds = 0;
 
   let showSettings = false;
   let savedTip = "";
@@ -318,6 +333,8 @@
         progress = 100;
         stage = "done";
         pdf = p.pdf || "";
+        lastTokens = p.tokens ?? 0;
+        lastSeconds = p.seconds ?? 0;
         pushLog(`✓ 完成：${p.chunks ?? 0} 段`);
         if (p.segments) {
           currentSegmentsPath = p.segments;
@@ -399,6 +416,38 @@
     library = library.map((d) => (d.id === doc.id ? { ...d, collection: value } : d));
     persistLibrary();
   }
+
+  async function loadFeed() {
+    if (feedLoading) return;
+    feedLoading = true;
+    feedError = "";
+    try {
+      const raw = await invoke<string>("discover");
+      const data = JSON.parse(raw || "{}");
+      if (data.error) {
+        feedError = String(data.error);
+      } else {
+        feed = (data.items ?? []).filter((it: FeedItem) => it.arxiv_id);
+      }
+    } catch (e) {
+      feedError = String(e);
+    } finally {
+      feedLoading = false;
+    }
+  }
+
+  async function useItem(it: FeedItem) {
+    arxivId = it.arxiv_id;
+    nav = "work";
+    view = "work";
+    await start();
+  }
+
+  function saveItem(it: FeedItem) {
+    upsertDoc({ arxivId: it.arxiv_id });
+    savedTip = "已收藏";
+    setTimeout(() => (savedTip = ""), 1500);
+  }
 </script>
 
 <header>
@@ -407,6 +456,16 @@
     <button class="nav-btn" class:on={nav === "work"} on:click={() => (nav = "work")}>工作台</button>
     <button class="nav-btn" class:on={nav === "library"} on:click={() => (nav = "library")}>
       文库 {#if library.length}<span class="badge">{library.length}</span>{/if}
+    </button>
+    <button
+      class="nav-btn"
+      class:on={nav === "discover"}
+      on:click={() => {
+        nav = "discover";
+        loadFeed();
+      }}
+    >
+      发现
     </button>
   </nav>
   <span class="grow"></span>
@@ -444,6 +503,39 @@
       {/each}
     </div>
   </main>
+{:else if nav === "discover"}
+  <main class="feed">
+    <div class="libbar">
+      <span class="feedtitle">全站热榜 · 近 7 天</span>
+      <span class="grow"></span>
+      <button class="ghost" on:click={loadFeed} disabled={feedLoading}>
+        {feedLoading ? "加载中…" : "刷新"}
+      </button>
+    </div>
+    <div class="feedlist">
+      {#if feedError}
+        <div class="empty">加载失败：{feedError}</div>
+      {:else if !feed.length}
+        <div class="empty">{feedLoading ? "正在拉取 alphaXiv 热榜…" : "点刷新加载"}</div>
+      {/if}
+      {#each feed as it (it.id)}
+        <article class="card">
+          <div class="cardtop">
+            <span class="pill">{it.arxiv_id}</span>
+            {#if it.votes != null}<span class="muted">↑ {it.votes} 票</span>{/if}
+            {#if it.visits != null}<span class="muted">{it.visits} 浏览</span>{/if}
+          </div>
+          <h3>{it.title}</h3>
+          <div class="auth">{it.authors}</div>
+          <p>{it.abstract}</p>
+          <div class="cardactions">
+            <button class="primary sm" on:click={() => useItem(it)}>译入</button>
+            <button class="ghost sm" on:click={() => saveItem(it)}>收藏</button>
+          </div>
+        </article>
+      {/each}
+    </div>
+  </main>
 {:else if view === "work"}
   <main>
     <div class="row">
@@ -474,6 +566,9 @@
         <span class="elapsed">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(
             elapsed % 60
           ).padStart(2, "0")}</span>
+      {/if}
+      {#if lastTokens}
+        <span class="cost">{lastTokens.toLocaleString()} tokens · {lastSeconds}s</span>
       {/if}
       {#if segments.length}
         <button class="ghost" on:click={() => (view = "read")}>打开阅读器</button>

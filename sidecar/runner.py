@@ -215,6 +215,7 @@ def run(arxiv_id: str) -> int:
 
     _prepare()
     _sync_glossary()
+    started = time.time()
     job_id = uuid.uuid4().hex[:12]
     work = JOBS / job_id
     work.mkdir(parents=True, exist_ok=True)
@@ -312,12 +313,15 @@ def run(arxiv_id: str) -> int:
             count = len(chunks)
 
             pdf = TEXLATE_DATA / "tasks" / task_id / "zh.pdf"
+            counters = task.get("counters") or {}
             emit(
                 event="done",
                 status=task.get("status", "done"),
                 pdf=str(pdf) if pdf.exists() else "",
                 segments=str(segments_path),
                 chunks=count,
+                tokens=counters.get("tokens") or 0,
+                seconds=round(time.time() - started, 1),
                 job=job_id,
             )
             return 0
@@ -332,7 +336,65 @@ def run(arxiv_id: str) -> int:
                 server.kill()
 
 
+def discover() -> int:
+    """拉 alphaXiv 全站热榜（近 7 天），输出 JSON 给桌面端。"""
+    import httpx
+
+    url = "https://api.alphaxiv.org/papers/v3/feed"
+    params = {"pageNum": 0, "pageSize": 100, "sort": "Hot", "interval": "7 Days"}
+    try:
+        with httpx.Client(timeout=25.0, follow_redirects=True) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            papers = resp.json().get("papers", [])
+    except Exception as exc:  # noqa: BLE001
+        print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False))
+        return 1
+
+    items = []
+    seen: set[str] = set()
+    arxiv_re = re.compile(r"^\d{4}\.\d{4,5}$")
+    for p in papers:
+        pid = str(p.get("universal_paper_id") or p.get("id") or "")
+        if not pid or pid in seen:
+            continue
+        # alphaXiv 的部分条目是 slug 而非 arXiv ID，译不了，直接跳过
+        if not arxiv_re.match(pid):
+            continue
+        seen.add(pid)
+
+        authors = p.get("authors") or []
+        if authors and isinstance(authors[0], dict):
+            names = [str(a.get("name") or "") for a in authors[:6]]
+        elif isinstance(authors, list):
+            names = [str(a) for a in authors[:6]]
+        else:
+            names = []
+
+        metrics = p.get("metrics") or {}
+        visits = metrics.get("visits_count") or {}
+        items.append(
+            {
+                "id": pid,
+                "arxiv_id": str(p.get("universal_paper_id") or ""),
+                "title": str(p.get("title") or "").strip(),
+                "authors": ", ".join(n for n in names if n),
+                "abstract": str(p.get("abstract") or "").strip(),
+                "votes": metrics.get("total_votes"),
+                "visits": visits.get("last_7_days"),
+                "topics": [t for t in (p.get("topics") or []) if isinstance(t, str)][:3],
+            }
+        )
+
+    print(json.dumps({"items": items}, ensure_ascii=False))
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--discover":
+        _patch_texlate()
+        return discover()
+
     if len(sys.argv) > 1 and sys.argv[1] == "--texlate":
         _patch_texlate()
         from texlate.cli import app as cli_app
