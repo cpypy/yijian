@@ -1,8 +1,16 @@
+// 发布版用窗口子系统，否则双击 exe 会先弹一个控制台黑框
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use tauri::{AppHandle, Emitter, Manager};
+
+/// Windows 上隐藏控制台窗口：GUI 程序拉起控制台子进程时，
+/// 系统会默认弹一个黑框，必须显式带 CREATE_NO_WINDOW。
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 fn engine_exe() -> &'static str {
     if cfg!(windows) {
@@ -48,13 +56,20 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
     if !exe.exists() {
         return Err(format!("引擎不存在：{}", exe.display()));
     }
-    let mut child = Command::new(&exe)
+    let mut command = Command::new(&exe);
+    command
         .arg("--run")
         .arg(arxiv_id)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
 
     if let Some(stdout) = child.stdout.take() {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -94,9 +109,11 @@ fn open_pdf(path: String) -> Result<(), String> {
 
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         Command::new("cmd")
             .args(["/C", "start", ""])
             .arg(&path)
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
     }

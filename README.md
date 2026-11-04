@@ -1,4 +1,4 @@
-# 译见 · Yijian
+﻿# 译见 · Yijian
 
 > 遇见论文的中文一面。一个跨平台桌面双语论文阅读器。
 
@@ -10,13 +10,13 @@
 
 | 平台 | 文件 |
 |---|---|
-| Windows 10/11 | `Yijian_0.1.0_x64-setup.exe` |
-| macOS (Apple Silicon) | `Yijian_0.1.0_aarch64.dmg` |
-| Linux (Debian/Ubuntu) | `Yijian_0.1.0_amd64.deb` |
+| Windows 10/11 | `Yijian_0.1.1_x64-setup.exe` |
+| macOS (Apple Silicon) | `Yijian_0.1.1_aarch64.dmg` |
+| Linux (Debian/Ubuntu) | `Yijian_0.1.1_amd64.deb` |
 
 安装包未签名，首次运行可能需要 SmartScreen 确认。
 
-**状态：v0.1.0，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
+**状态：v0.1.1，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
 
 ## 架构
 
@@ -63,8 +63,8 @@ npm run tauri build        # 出安装包
 Windows / macOS / Linux 三个 runner 上分别构建引擎、打包安装包并创建 Release。
 
 ```bash
-git tag -a v0.1.0 -m "译见 0.1.0"
-git push origin v0.1.0
+git tag -a v0.1.1 -m "译见 0.1.1"
+git push origin v0.1.1
 ```
 
 ## 当前进度
