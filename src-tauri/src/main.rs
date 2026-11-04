@@ -13,17 +13,34 @@ fn engine_exe() -> &'static str {
 }
 
 fn engine_path(app: &AppHandle) -> PathBuf {
+    let name = engine_exe();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
     if let Ok(dir) = app.path().resource_dir() {
-        let bundled = dir.join("sidecar").join(engine_exe());
-        if bundled.exists() {
-            return bundled;
+        candidates.push(dir.join("sidecar").join(name));
+        candidates.push(dir.join("resources").join("sidecar").join(name));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("sidecar").join(name));
+            candidates.push(dir.join("resources").join("sidecar").join(name));
+            candidates.push(dir.join("_up_").join("sidecar").join(name));
         }
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("dist-sidecar")
-        .join("yijian-engine")
-        .join(engine_exe())
+    candidates.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("dist-sidecar")
+            .join("yijian-engine")
+            .join(name),
+    );
+
+    for path in &candidates {
+        if path.exists() {
+            return path.clone();
+        }
+    }
+    candidates.remove(0)
 }
 
 fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {

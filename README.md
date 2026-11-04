@@ -4,7 +4,19 @@
 
 输入 arXiv ID，取回 LaTeX 源码，逐段翻译，用 ctex 重新编译成中英对照 PDF。翻译走你自己的 OpenAI 兼容端点（BYOK），按量计费；公式、引用、图表编号保持原位。
 
-**状态：早期开发。** 引擎链路已跑通，桌面壳正在从 Python 迁到 Tauri。
+## 下载
+
+从 [Releases](https://github.com/cpypy/yijian/releases) 下载：
+
+| 平台 | 文件 |
+|---|---|
+| Windows 10/11 | `Yijian_0.1.0_x64-setup.exe` |
+| macOS (Apple Silicon) | `Yijian_0.1.0_aarch64.dmg` |
+| Linux (Debian/Ubuntu) | `Yijian_0.1.0_amd64.deb` |
+
+安装包未签名，首次运行可能需要 SmartScreen 确认。
+
+**状态：v0.1.0，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
 
 ## 架构
 
