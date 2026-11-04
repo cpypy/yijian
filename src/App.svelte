@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import * as katex from "katex";
 
   type Segment = {
@@ -13,6 +13,16 @@
     ph: Record<string, string>;
   };
   type Settings = { base_url: string; model: string; api_key: string };
+  type Doc = {
+    id: string;
+    arxivId: string;
+    addedAt: number;
+    pdf: string;
+    segments: string;
+    progress: number;
+    lastSeq: number;
+    collection: string;
+  };
 
   let arxivId = "1706.03762";
   let running = false;
@@ -25,6 +35,7 @@
   let timer: ReturnType<typeof setInterval> | null = null;
 
   let view: "work" | "read" = "work";
+  let nav: "work" | "library" = "work";
   let segments: Segment[] = [];
   let mode: "both" | "en" | "zh" = "both";
   let selected = -1;
@@ -39,6 +50,14 @@
   let noteOpen = -1;
   let noteTimer: ReturnType<typeof setTimeout> | null = null;
 
+  let library: Doc[] = [];
+  let query = "";
+  let currentDocId = "";
+  let currentSegmentsPath = "";
+  let readProgress = 0;
+  let docEl: HTMLDivElement | null = null;
+  let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+
   const STAGE_LABEL: Record<string, string> = {
     idle: "就绪",
     fetch: "取源",
@@ -48,6 +67,17 @@
     judge: "判定",
     done: "完成",
   };
+
+  $: visibleDocs = library
+    .filter((d) => {
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        d.arxivId.toLowerCase().includes(q) ||
+        (d.collection || "").toLowerCase().includes(q)
+      );
+    })
+    .sort((a, b) => b.addedAt - a.addedAt);
 
   function esc(s: string): string {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -121,16 +151,49 @@
     if (el) el.scrollTop = el.scrollHeight;
   }
 
+  function persistLibrary() {
+    invoke("save_library", { text: JSON.stringify(library) }).catch(() => {});
+  }
+
+  function upsertDoc(patch: Partial<Doc> & { arxivId: string }) {
+    const idx = library.findIndex((d) => d.arxivId === patch.arxivId);
+    if (idx >= 0) {
+      library = library.map((d, i) => (i === idx ? { ...d, ...patch } : d));
+    } else {
+      library = [
+        {
+          id: patch.arxivId,
+          arxivId: patch.arxivId,
+          addedAt: Date.now(),
+          pdf: "",
+          segments: "",
+          progress: 0,
+          lastSeq: 0,
+          collection: "",
+          ...patch,
+        },
+        ...library,
+      ];
+    }
+    persistLibrary();
+  }
+
+  async function loadLibrary() {
+    try {
+      const raw = await invoke<string>("load_library");
+      const items = JSON.parse(raw || "[]");
+      if (Array.isArray(items)) library = items;
+    } catch {
+      library = [];
+    }
+  }
+
   async function loadSettings() {
     try {
       const s = await invoke<Record<string, string>>("load_settings");
-      settings = {
-        base_url: s.base_url ?? "",
-        model: s.model ?? "",
-        api_key: s.api_key ?? "",
-      };
+      settings = { base_url: s.base_url ?? "", model: s.model ?? "", api_key: s.api_key ?? "" };
     } catch {
-      /* 首次运行没有设置文件 */
+      /* 首次运行 */
     }
     try {
       const raw = await invoke<string>("load_glossary");
@@ -179,8 +242,69 @@
     }, 600);
   }
 
+  async function applySegments(raw: string) {
+    const data = JSON.parse(raw);
+    segments = (data.chunks ?? []).map((c: any) => ({
+      seq: c.seq,
+      kind: c.kind || "para",
+      status: c.status || "",
+      en: c.en || "",
+      zh: c.zh || "",
+      ph: c.ph ?? {},
+    }));
+    view = "read";
+    await loadNotes();
+  }
+
+  async function openDoc(d: Doc) {
+    arxivId = d.arxivId;
+    currentDocId = d.id;
+    if (!d.segments) {
+      nav = "work";
+      view = "work";
+      return;
+    }
+    try {
+      const raw = await invoke<string>("read_segments", { path: d.segments });
+      await applySegments(raw);
+      await tick();
+      const target = docEl?.querySelector<HTMLElement>(`[data-seq="${d.lastSeq}"]`);
+      if (target) target.scrollIntoView({ block: "center" });
+    } catch (e) {
+      logs = [`无法打开：${String(e)}`];
+      nav = "work";
+      view = "work";
+    }
+  }
+
+  function onDocScroll() {
+    if (!docEl) return;
+    const rows = docEl.querySelectorAll<HTMLElement>(".seg");
+    let current = 0;
+    for (const row of rows) {
+      if (row.getBoundingClientRect().bottom > 120) {
+        current = Number(row.dataset.seq ?? 0);
+        break;
+      }
+    }
+    const ratio = docEl.scrollTop / Math.max(1, docEl.scrollHeight - docEl.clientHeight);
+    readProgress = Math.round(ratio * 100);
+    if (currentDocId && !running) {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        upsertDoc({
+          arxivId: currentDocId,
+          progress: readProgress,
+          lastSeq: current,
+          segments: currentSegmentsPath,
+        });
+      }, 800);
+    }
+  }
+
   onMount(() => {
     loadSettings();
+    loadLibrary();
 
     const un1 = listen<Record<string, unknown>>("engine-event", async (e) => {
       const p = e.payload as any;
@@ -196,22 +320,18 @@
         pdf = p.pdf || "";
         pushLog(`✓ 完成：${p.chunks ?? 0} 段`);
         if (p.segments) {
+          currentSegmentsPath = p.segments;
+          currentDocId = arxivId.trim();
           try {
             const raw = await invoke<string>("read_segments", { path: p.segments });
-            const data = JSON.parse(raw);
-            segments = (data.chunks ?? []).map((c: any) => ({
-              seq: c.seq,
-              kind: c.kind || "para",
-              status: c.status || "",
-              en: c.en || "",
-              zh: c.zh || "",
-              ph: c.ph ?? {},
-            }));
-            if (segments.length) {
-              view = "read";
-              selected = -1;
-              await loadNotes();
-            }
+            await applySegments(raw);
+            upsertDoc({
+              arxivId: currentDocId,
+              pdf,
+              segments: p.segments,
+              progress: 0,
+              lastSeq: 0,
+            });
           } catch (err) {
             pushLog("读取段落失败：" + String(err));
           }
@@ -231,6 +351,7 @@
   onDestroy(() => {
     if (timer) clearInterval(timer);
     if (noteTimer) clearTimeout(noteTimer);
+    if (scrollTimer) clearTimeout(scrollTimer);
   });
 
   async function start() {
@@ -243,6 +364,7 @@
     segments = [];
     notes = {};
     view = "work";
+    nav = "work";
     startedAt = Date.now();
     elapsed = 0;
     if (timer) clearInterval(timer);
@@ -272,17 +394,57 @@
   function toggleMode(next: "both" | "en" | "zh") {
     mode = mode === next ? "both" : next;
   }
+
+  function setCollection(doc: Doc, value: string) {
+    library = library.map((d) => (d.id === doc.id ? { ...d, collection: value } : d));
+    persistLibrary();
+  }
 </script>
 
 <header>
   <div class="brand"><span class="logo">译</span> 译见</div>
-  <span class="hint">arXiv 论文 → 中英对照阅读</span>
+  <nav class="nav">
+    <button class="nav-btn" class:on={nav === "work"} on:click={() => (nav = "work")}>工作台</button>
+    <button class="nav-btn" class:on={nav === "library"} on:click={() => (nav = "library")}>
+      文库 {#if library.length}<span class="badge">{library.length}</span>{/if}
+    </button>
+  </nav>
   <span class="grow"></span>
   {#if savedTip}<span class="saved">{savedTip}</span>{/if}
   <button class="icon" title="模型与术语" on:click={() => (showSettings = true)}>⚙</button>
 </header>
 
-{#if view === "work"}
+{#if nav === "library"}
+  <main class="library">
+    <div class="libbar">
+      <input class="search" bind:value={query} placeholder="搜索 arXiv ID 或分类…" />
+      <span class="grow"></span>
+      <span class="rmeta">{visibleDocs.length} 篇</span>
+    </div>
+    <div class="liblist">
+      {#if !visibleDocs.length}
+        <div class="empty">还没有论文。回工作台输入 arXiv ID 跑一篇，会自动收进这里。</div>
+      {/if}
+      {#each visibleDocs as d (d.id)}
+        <div class="librow">
+          <button class="libopen" on:click={() => openDoc(d)}>
+            <span class="libtitle">{d.arxivId}</span>
+            <span class="libmeta">
+              {new Date(d.addedAt).toLocaleDateString()} · 进度 {Math.round(d.progress || 0)}%
+            </span>
+            <span class="libbar-track"><i style={`width:${d.progress || 0}%`}></i></span>
+          </button>
+          <input
+            class="colinput"
+            placeholder="分类"
+            value={d.collection}
+            on:change={(e) => setCollection(d, (e.target as HTMLInputElement).value)}
+          />
+        </div>
+      {/each}
+    </div>
+  </main>
+{:else if view === "work"}
   <main>
     <div class="row">
       <input
@@ -335,12 +497,19 @@
       {/if}
     </div>
 
-    <div class="doc" class:only-en={mode === "en"} class:only-zh={mode === "zh"}>
+    <div
+      class="doc"
+      class:only-en={mode === "en"}
+      class:only-zh={mode === "zh"}
+      bind:this={docEl}
+      on:scroll={onDocScroll}
+    >
       {#each segments as s (s.seq)}
         <div
           class="seg"
           class:title={s.kind === "section_title"}
           class:active={selected === s.seq}
+          data-seq={s.seq}
           on:click={() => (selected = selected === s.seq ? -1 : s.seq)}
           role="button"
           tabindex="0"

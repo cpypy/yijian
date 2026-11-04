@@ -284,3 +284,96 @@ mark.term {
 }
 .panel textarea:focus { border-color: #b9cbc4; box-shadow: 0 0 0 3px #e7f0ec; }
 .panel code { background: #f1ede5; border-radius: 3px; padding: 0 3px; }
+
+/* ---------- 导航与文库 ---------- */
+.nav { display: flex; gap: 4px; margin-left: 10px; }
+.nav-btn {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-radius: 7px;
+  border-color: transparent;
+  background: transparent;
+  color: #5c564c;
+}
+.nav-btn:hover { background: #f1ede5; }
+.nav-btn.on { background: #eef4f1; color: var(--accent); font-weight: 600; }
+.badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #e7e1d5;
+  color: #6a6459;
+  font-size: 10.5px;
+}
+
+main.library { padding: 0; gap: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.libbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.search {
+  width: 320px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 11px;
+  font: 13px "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  outline: none;
+  background: #fff;
+}
+.search:focus { border-color: #b9cbc4; box-shadow: 0 0 0 3px #e7f0ec; }
+
+.liblist { flex: 1; overflow: auto; background: var(--surface); }
+.empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+
+.librow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f2eee5;
+}
+.librow:hover { background: #fbf8f2; }
+
+.libopen {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "t m" "b b";
+  gap: 4px 10px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  height: auto;
+  cursor: pointer;
+}
+.libtitle { grid-area: t; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.libmeta { grid-area: m; font-size: 11.5px; color: var(--muted); }
+.libbar-track {
+  grid-area: b;
+  display: block;
+  height: 3px;
+  background: #efe9dd;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.libbar-track i { display: block; height: 100%; background: var(--accent); }
+
+.colinput {
+  width: 120px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 8px;
+  font: 12px "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  outline: none;
+  background: #fff;
+}
+.colinput:focus { border-color: #b9cbc4; }

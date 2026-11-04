@@ -1,4 +1,4 @@
-﻿# 译见 · Yijian
+# 译见 · Yijian
 
 > 遇见论文的中文一面。一个跨平台桌面双语论文阅读器。
 
@@ -10,13 +10,13 @@
 
 | 平台 | 文件 |
 |---|---|
-| Windows 10/11 | `Yijian_0.1.7_x64-setup.exe` |
-| macOS (Apple Silicon) | `Yijian_0.1.7_aarch64.dmg` |
-| Linux (Debian/Ubuntu) | `Yijian_0.1.7_amd64.deb` |
+| Windows 10/11 | `Yijian_0.1.8_x64-setup.exe` |
+| macOS (Apple Silicon) | `Yijian_0.1.8_aarch64.dmg` |
+| Linux (Debian/Ubuntu) | `Yijian_0.1.8_amd64.deb` |
 
 安装包未签名，首次运行可能需要 SmartScreen 确认。
 
-**状态：v0.1.7，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
+**状态：v0.1.8，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
 
 ## 架构
 
@@ -64,7 +64,7 @@ Windows / macOS / Linux 三个 runner 上分别构建引擎、打包安装包并
 
 ```bash
 git tag -a v0.1.3 -m "译见 0.1.3"
-git push origin v0.1.7
+git push origin v0.1.8
 ```
 
 ## 当前进度
@@ -76,7 +76,8 @@ git push origin v0.1.7
 | Tauri 壳 | ✅ 三平台出包，日志流式显示，可取消 |
 | 真翻译（BYOK） | ✅ 设置页填端点/Key/模型，传给引擎 |
 | 阅读器 | 🚧 双栏 + 公式 + 引用 chip + 术语高亮 + 段落笔记 |
-| 文库 / 发现 | ⏳ |
+| 文库 | 🚧 列表 / 搜索 / 分类 / 阅读进度，集合树待做 |
+| 发现 | ⏳ |
 
 ## 已知限制
 
