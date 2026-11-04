@@ -37,6 +37,8 @@ jobs:
         shell: bash
         env:
           TEXLATE_DATA_DIR: ${{ github.workspace }}/data/texlate
+          # texlate 在 CI=true 时默认关闭自动下载，这里显式打开
+          TEXLATE_NO_DOWNLOAD: "0"
         run: python -m texlate tools install-tectonic
 
       - name: Build sidecar
