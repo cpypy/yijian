@@ -38,15 +38,37 @@ jobs:
 
       - name: Install tectonic
         shell: bash
-        env:
-          TEXLATE_DATA_DIR: ${{ github.workspace }}/data/texlate
-          # texlate 见到 CI=true 会关掉自动下载；这里两个开关都显式打开
-          CI: ""
-          TEXLATE_NO_DOWNLOAD: "0"
         run: |
-          python -m texlate tools install-tectonic
-          echo "--- tools dir ---"
-          ls -la data/texlate/tools/ || true
+          set -euo pipefail
+          mkdir -p data/texlate/tools
+          BASE="https://github.com/tectonic-typesetting/tectonic/releases/download/continuous"
+          VER="0.17.0%2B20260731"
+          case "$RUNNER_OS" in
+            Windows) ASSET="tectonic-${VER}-x86_64-pc-windows-msvc.zip" ;;
+            macOS)   ASSET="tectonic-${VER}-aarch64-apple-darwin.tar.gz" ;;
+            Linux)   ASSET="tectonic-${VER}-x86_64-unknown-linux-gnu.tar.gz" ;;
+          esac
+          curl -fL --retry 3 -o data/texlate/tools/tectonic.pkg "$BASE/$ASSET"
+          python - <<'PY'
+          import tarfile, zipfile
+          from pathlib import Path
+          tools = Path("data/texlate/tools")
+          pkg = tools / "tectonic.pkg"
+          if pkg.read_bytes()[:2] == b"PK":
+              zipfile.ZipFile(pkg).extractall(tools)
+          else:
+              with tarfile.open(pkg) as tf:
+                  tf.extractall(tools)
+          pkg.unlink()
+          for exe in tools.iterdir():
+              print(exe.name, exe.stat().st_size)
+              if exe.name.lower().startswith("tectonic"):
+                  try:
+                      exe.chmod(0o755)
+                  except OSError:
+                      pass
+          PY
+          ls -la data/texlate/tools/
 
       - name: Build sidecar
         shell: bash
