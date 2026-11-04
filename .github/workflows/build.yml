@@ -29,6 +29,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Reject UTF-8 BOM
+        shell: bash
+        run: |
+          python tools/strip_bom.py
+          if ! git diff --quiet; then
+            echo "::error::检测到 UTF-8 BOM，已自动清理，请提交后再试"
+            git diff --stat
+            exit 1
+          fi
+
       - name: Prepare prebuilt TeX bundle
         shell: bash
         run: |
