@@ -144,6 +144,11 @@ fn start_run(app: AppHandle, arxiv_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn read_segments(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn open_pdf(path: String) -> Result<(), String> {
     if !std::path::Path::new(&path).exists() {
         return Err("PDF 不存在".into());
@@ -179,7 +184,12 @@ fn open_pdf(path: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .manage(RunState::default())
-        .invoke_handler(tauri::generate_handler![start_run, cancel_run, open_pdf])
+        .invoke_handler(tauri::generate_handler![
+            start_run,
+            cancel_run,
+            open_pdf,
+            read_segments
+        ])
         .run(tauri::generate_context!())
         .expect("启动失败");
 }

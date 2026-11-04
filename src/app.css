@@ -5,6 +5,8 @@
   --muted: #7a746a;
   --line: #e4ded2;
   --accent: #2e5f55;
+  --serif: "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --zh-serif: "Songti SC", SimSun, "Source Han Serif SC", serif;
   font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
 }
 
@@ -68,3 +70,68 @@ button.ghost { height: 28px; padding: 0 10px; font-size: 12px; }
   overflow: auto; font: 12px/1.6 "Cascadia Mono", Consolas, monospace;
   color: #4a463e; white-space: pre-wrap; user-select: text;
 }
+
+/* ---------- 阅读器 ---------- */
+main.reader {
+  padding: 0;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 12px;
+  flex: none;
+}
+
+.rid { font-weight: 600; font-size: 13px; }
+.rmeta { color: var(--muted); }
+.grow { flex: 1; }
+
+.seg-btn { height: 26px; padding: 0 10px; font-size: 12px; border-radius: 6px; }
+.seg-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.doc { flex: 1; overflow: auto; padding: 10px 0 60px; background: var(--surface); }
+
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 30px;
+  padding: 9px 30px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+.seg:hover { background: #fbf8f2; }
+.seg.active { background: #f2f7f4; border-left-color: var(--accent); }
+
+.seg .en {
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.75;
+  color: #25231e;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.seg .zh {
+  font-family: var(--zh-serif);
+  font-size: 15px;
+  line-height: 1.95;
+  color: #26241f;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.seg.title .en,
+.seg.title .zh { font-weight: 700; font-size: 16.5px; }
+
+.only-en .seg,
+.only-zh .seg { grid-template-columns: 1fr; }
+.only-en .seg .zh,
+.only-zh .seg .en { display: none; }

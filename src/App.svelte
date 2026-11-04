@@ -3,6 +3,8 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
 
+  type Segment = { seq: number; kind: string; status: string; en: string; zh: string };
+
   let arxivId = "1706.03762";
   let running = false;
   let progress = 0;
@@ -12,6 +14,11 @@
   let startedAt = 0;
   let elapsed = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
+
+  let view: "work" | "read" = "work";
+  let segments: Segment[] = [];
+  let mode: "both" | "en" | "zh" = "both";
+  let selected = -1;
 
   const STAGE_LABEL: Record<string, string> = {
     idle: "就绪",
@@ -30,7 +37,7 @@
   }
 
   onMount(() => {
-    const un1 = listen<Record<string, unknown>>("engine-event", (e) => {
+    const un1 = listen<Record<string, unknown>>("engine-event", async (e) => {
       const p = e.payload as any;
       if (p.event === "stage") {
         stage = p.stage;
@@ -41,8 +48,27 @@
         running = false;
         progress = 100;
         stage = "done";
-        pdf = p.pdf;
-        pushLog("✓ 完成：" + p.pdf);
+        pdf = p.pdf || "";
+        pushLog(`✓ 完成：${p.chunks ?? 0} 段`);
+        if (p.segments) {
+          try {
+            const raw = await invoke<string>("read_segments", { path: p.segments });
+            const data = JSON.parse(raw);
+            segments = (data.chunks ?? []).map((c: any) => ({
+              seq: c.seq,
+              kind: c.kind || "para",
+              status: c.status || "",
+              en: c.en || "",
+              zh: c.zh || "",
+            }));
+            if (segments.length) {
+              view = "read";
+              selected = -1;
+            }
+          } catch (err) {
+            pushLog("读取段落失败：" + String(err));
+          }
+        }
       } else if (p.event === "error") {
         running = false;
         pushLog("ERROR: " + p.message);
@@ -66,6 +92,8 @@
     stage = "fetch";
     logs = [];
     pdf = "";
+    segments = [];
+    view = "work";
     startedAt = Date.now();
     elapsed = 0;
     if (timer) clearInterval(timer);
@@ -91,39 +119,79 @@
   async function openPdf() {
     if (pdf) await invoke("open_pdf", { path: pdf });
   }
+
+  function toggleMode(next: "both" | "en" | "zh") {
+    mode = mode === next ? "both" : next;
+  }
 </script>
 
 <header>
   <div class="brand"><span class="logo">译</span> 译见</div>
-  <span class="hint">arXiv 论文 → 中英对照 PDF</span>
+  <span class="hint">arXiv 论文 → 中英对照阅读</span>
 </header>
 
-<main>
-  <div class="row">
-    <input
-      bind:value={arxivId}
-      placeholder="arXiv ID 或链接，例如 1706.03762"
-      on:keydown={(e) => e.key === "Enter" && start()}
-      disabled={running}
-    />
-    {#if running}
-      <button class="ghost" on:click={cancel}>取消</button>
-    {:else}
-      <button class="primary" on:click={start}>开始</button>
-    {/if}
-  </div>
+{#if view === "work"}
+  <main>
+    <div class="row">
+      <input
+        bind:value={arxivId}
+        placeholder="arXiv ID 或链接，例如 1706.03762"
+        on:keydown={(e) => e.key === "Enter" && start()}
+        disabled={running}
+      />
+      {#if running}
+        <button class="ghost" on:click={cancel}>取消</button>
+      {:else}
+        <button class="primary" on:click={start}>开始</button>
+      {/if}
+    </div>
 
-  <div class="status">
-    <span class="stage">{STAGE_LABEL[stage] ?? stage}</span>
-    <div class="bar"><i style={`width:${progress}%`} /></div>
-    <span class="pct">{Math.round(progress)}%</span>
-    {#if running}
-      <span class="elapsed">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</span>
-    {/if}
-    {#if pdf}
-      <button class="ghost" on:click={openPdf}>打开 PDF</button>
-    {/if}
-  </div>
+    <div class="status">
+      <span class="stage">{STAGE_LABEL[stage] ?? stage}</span>
+      <div class="bar"><i style={`width:${progress}%`} /></div>
+      <span class="pct">{Math.round(progress)}%</span>
+      {#if running}
+        <span class="elapsed">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(
+            elapsed % 60
+          ).padStart(2, "0")}</span>
+      {/if}
+      {#if segments.length}
+        <button class="ghost" on:click={() => (view = "read")}>打开阅读器</button>
+      {/if}
+    </div>
 
-  <pre class="log" id="logbox">{logs.join("\n") || "等待任务…"}</pre>
-</main>
+    <pre class="log" id="logbox">{logs.join("\n") || "等待任务…"}</pre>
+  </main>
+{:else}
+  <main class="reader">
+    <div class="rbar">
+      <button class="ghost" on:click={() => (view = "work")}>← 返回</button>
+      <span class="rid">{arxivId}</span>
+      <span class="rmeta">{segments.length} 段</span>
+      <span class="grow"></span>
+      <button class="seg-btn" class:on={mode === "en"} on:click={() => toggleMode("en")}>原文</button>
+      <button class="seg-btn" class:on={mode === "both"} on:click={() => toggleMode("both")}>对照</button>
+      <button class="seg-btn" class:on={mode === "zh"} on:click={() => toggleMode("zh")}>译文</button>
+      {#if pdf}
+        <button class="ghost" on:click={openPdf}>PDF</button>
+      {/if}
+    </div>
+
+    <div class="doc" class:only-en={mode === "en"} class:only-zh={mode === "zh"}>
+      {#each segments as s (s.seq)}
+        <div
+          class="seg"
+          class:title={s.kind === "section_title"}
+          class:active={selected === s.seq}
+          on:click={() => (selected = selected === s.seq ? -1 : s.seq)}
+          role="button"
+          tabindex="0"
+          on:keydown={(e) => e.key === "Enter" && (selected = s.seq)}
+        >
+          <div class="en">{s.en}</div>
+          <div class="zh">{s.zh || "（未翻译）"}</div>
+        </div>
+      {/each}
+    </div>
+  </main>
+{/if}
