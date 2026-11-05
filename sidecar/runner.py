@@ -48,7 +48,7 @@ BUNDLED_TEXBUNDLE = APP_DIR.parent / "texbundle"
 TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
 #: 单次输出预算：推理模型的思考也吃 max_tokens，实测 flash 接受 131072，
 #: 这里取 65536，既够思考又不会让服务端直接拒绝
-MAX_TOKENS = int(os.environ.get("YIJIAN_MAX_TOKENS", "65536"))
+MAX_TOKENS = int(os.environ.get("YIJIAN_MAX_TOKENS", "262144"))
 #: 单批字符上限（配合大预算，适当放宽以提升速度）
 BATCH_CHARS_CAP = int(os.environ.get("YIJIAN_BATCH_CHARS", "6000"))
 

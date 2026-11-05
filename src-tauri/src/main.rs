@@ -238,36 +238,45 @@ fn spawn_worker(app: AppHandle) {
 #[tauri::command]
 fn queue_list(app: AppHandle) -> Vec<String> {
     let state = app.state::<RunState>();
-    match state.queue.lock() {
-        Ok(q) => q.iter().map(|(id, _)| id.clone()).collect(),
-        Err(_) => Vec::new(),
-    }
+    let q = match state.queue.lock() {
+        Ok(q) => q,
+        Err(_) => return Vec::new(),
+    };
+    q.iter().map(|(id, _)| id.clone()).collect()
 }
 
 #[tauri::command]
 fn queue_remove(app: AppHandle, index: usize) -> Result<(), String> {
     let state = app.state::<RunState>();
-    {
-        let mut q = state.queue.lock().map_err(|e| e.to_string())?;
+    let n = {
+        let mut q = match state.queue.lock() {
+            Ok(q) => q,
+            Err(_) => return Err("队列被占用".into()),
+        };
         if index < q.len() {
             q.remove(index);
         }
-        let n = q.len();
-        let _ = app.emit("queue", n);
-    }
+        q.len()
+    };
+    let _ = app.emit("queue", n);
     Ok(())
 }
 
 #[tauri::command]
 fn queue_move(app: AppHandle, index: usize, delta: i32) -> Result<(), String> {
     let state = app.state::<RunState>();
-    let mut q = state.queue.lock().map_err(|e| e.to_string())?;
-    let len = q.len();
-    if index < len {
-        let target = (index as i32 + delta).clamp(0, len as i32 - 1) as usize;
-        if target != index {
-            if let Some(item) = q.remove(index) {
-                q.insert(target, item);
+    {
+        let mut q = match state.queue.lock() {
+            Ok(q) => q,
+            Err(_) => return Err("队列被占用".into()),
+        };
+        let len = q.len();
+        if index < len {
+            let target = (index as i32 + delta).clamp(0, len as i32 - 1) as usize;
+            if target != index {
+                if let Some(item) = q.remove(index) {
+                    q.insert(target, item);
+                }
             }
         }
     }
