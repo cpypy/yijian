@@ -129,20 +129,27 @@ def _prepare() -> None:
     for path in (TEXLATE_DATA, TEXLATE_CACHE, TECTONIC_CACHE, JOBS):
         path.mkdir(parents=True, exist_ok=True)
 
-    # 把安装包预置的宏包缓存合并到本地，缺什么补什么（半截缓存也能补齐）
-    if BUNDLED_TEXBUNDLE.exists():
+    # 把安装包预置的宏包缓存合并到本地。首次展开很慢（600+ 文件，
+    # 还可能被杀软逐个扫描），所以用标记文件跳过后续重复扫描，并且
+    # 全程打日志——否则界面会长时间停在 2% 看起来像卡死。
+    marker = TECTONIC_CACHE / ".bundle-ok"
+    stamp = str(int(BUNDLED_TEXBUNDLE.stat().st_mtime)) if BUNDLED_TEXBUNDLE.exists() else ""
+    already = marker.exists() and marker.read_text(encoding="utf-8").strip() == stamp
+
+    if BUNDLED_TEXBUNDLE.exists() and not already:
+        files = [p for p in BUNDLED_TEXBUNDLE.rglob("*") if p.is_file()]
+        emit(event="log", line=f"正在展开预置 TeX 缓存（{len(files)} 个文件，首次会慢一点）…")
         copied = 0
-        for item in BUNDLED_TEXBUNDLE.rglob("*"):
-            if not item.is_file():
-                continue
+        for index, item in enumerate(files, 1):
             target = TECTONIC_CACHE / item.relative_to(BUNDLED_TEXBUNDLE)
-            if target.exists():
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, target)
-            copied += 1
-        if copied:
-            emit(event="log", line=f"已载入预置 TeX 缓存：{copied} 个文件")
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, target)
+                copied += 1
+            if index % 150 == 0:
+                emit(event="log", line=f"缓存 {index}/{len(files)}")
+        marker.write_text(stamp, encoding="utf-8")
+        emit(event="log", line=f"TeX 缓存就绪（新增 {copied} 个文件）")
 
     target = TEXLATE_DATA / "tools" / TECTONIC_NAME
     if not target.exists():
@@ -347,6 +354,7 @@ def run(arxiv_id: str, mode: str = "auto") -> int:
     """mode: auto（有旧任务就报冲突）/ resume（续跑）/ fresh（删掉重来）"""
     import httpx
 
+    emit(event="log", line="准备运行环境…")
     _prepare()
     _sync_glossary()
     started = time.time()
@@ -359,6 +367,7 @@ def run(arxiv_id: str, mode: str = "auto") -> int:
 
     port = _free_port()
     emit(event="stage", stage="fetch", progress=2)
+    emit(event="log", line="启动引擎服务…")
 
     with open(log_path, "w", encoding="utf-8", errors="replace") as log_fh:
         server = subprocess.Popen(  # noqa: S603
@@ -375,8 +384,9 @@ def run(arxiv_id: str, mode: str = "auto") -> int:
                 trust_env=False,
             )
             if not _wait_server(client):
-                emit(event="error", message="引擎服务启动失败，详见 run.log")
+                emit(event="error", message="引擎服务 40 秒内没起来，详见 run.log")
                 return 1
+            emit(event="log", line="引擎就绪")
 
             existing = _pick_task(_list_tasks(client), arxiv_id)
             task_id: str | None = None
