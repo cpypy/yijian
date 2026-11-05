@@ -46,6 +46,8 @@ TECTONIC_CACHE = DATA / "tectonic-cache"
 BUNDLED_TEXBUNDLE = APP_DIR.parent / "texbundle"
 
 TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
+#: 单批字符上限（推理模型的 thinking 也吃 max_tokens，默认 12000 容易截断）
+BATCH_CHARS_CAP = int(os.environ.get("YIJIAN_BATCH_CHARS", "4000"))
 
 #: texlate 任务状态 → (阶段, 进度)
 STATUS_STAGE = {
@@ -104,6 +106,26 @@ def _patch_texlate() -> None:
             "https_proxy",
         }
     )
+
+    # 推理型模型（deepseek-flash 等）会把思考 token 也算进 max_tokens，
+    # 默认 12000 字符一批容易触发 finish_reason=length。把单批压小，
+    # 让「思考 + 译文」装得下 8192 的输出预算。
+    try:
+        import texlate.server.worker.translate.stage as _stage
+
+        if not getattr(_stage, "_yijian_batch_patched", False):
+            _orig_pc = _stage.PipelineConfig
+
+            class _PatchedPipelineConfig(_orig_pc):  # type: ignore[misc,valid-type]
+                def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                    kwargs.setdefault("batch_max_chars", BATCH_CHARS_CAP)
+                    kwargs.setdefault("hard_limit", BATCH_CHARS_CAP // 2)
+                    super().__init__(*args, **kwargs)
+
+            _stage.PipelineConfig = _PatchedPipelineConfig
+            _stage._yijian_batch_patched = True  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _env() -> dict[str, str]:
@@ -514,11 +536,17 @@ def run(arxiv_id: str, mode: str = "auto") -> int:
                         emit(event="log", line=text_line)
                         if "502" in text_line or "401" in text_line:
                             model_failures += 1
+                        if "finish_reason=length" in text_line:
+                            model_failures += 1
 
                 if model_failures >= 6:
                     emit(
                         event="error",
-                        message="模型端点连续失败（502/401）：请检查 Base URL、模型名与 API Key",
+                        message=(
+                            "模型连续失败（502/401/输出截断）：请检查 Key 与模型名；"
+                            "若日志出现 finish_reason=length，说明单批输出超出模型上限，"
+                            "可换上下文更大的模型，或设置 YIJIAN_BATCH_CHARS=2000 再试"
+                        ),
                     )
                     return 1
                 if stall_ticks > 300:
