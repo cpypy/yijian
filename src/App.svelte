@@ -441,6 +441,10 @@
         progress = p.progress;
       } else if (p.event === "log") {
         pushLog(p.line);
+      } else if (p.event === "conflict") {
+        running = false;
+        conflict = { task_id: p.task_id, status: p.status, progress: p.progress ?? 0 };
+        pushLog(`发现未完成任务 ${p.task_id}（${p.status}），等待选择`);
       } else if (p.event === "done") {
         running = false;
         progress = 100;
@@ -471,17 +475,12 @@
       } else if (p.event === "error") {
         running = false;
         pushLog("ERROR: " + p.message);
+      } else if (p.event) {
+        pushLog(`未知事件 ${p.event}：${JSON.stringify(p).slice(0, 200)}`);
       }
     });
     const un2 = listen("engine-exit", () => (running = false));
     const un5 = listen<string>("engine-log", (e) => pushLog(e.payload));
-    const un6 = listen<{ task_id: string; status: string; progress: number }>(
-      "conflict",
-      (e) => {
-        running = false;
-        conflict = e.payload;
-      }
-    );
     const un3 = listen<{ arxiv_id: string }>("job-start", (e) => {
       arxivId = e.payload.arxiv_id;
       progress = 0;
@@ -498,7 +497,6 @@
       un3.then((f) => f());
       un4.then((f) => f());
       un5.then((f) => f());
-      un6.then((f) => f());
     };
   });
 

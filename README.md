@@ -10,13 +10,13 @@
 
 | 平台 | 文件 |
 |---|---|
-| Windows 10/11 | `Yijian_0.1.2_x64-setup.exe` |
-| macOS (Apple Silicon) | `Yijian_0.1.2_aarch64.dmg` |
-| Linux (Debian/Ubuntu) | `Yijian_0.1.2_amd64.deb` |
+| Windows 10/11 | `Yijian_0.1.3_x64-setup.exe` |
+| macOS (Apple Silicon) | `Yijian_0.1.3_aarch64.dmg` |
+| Linux (Debian/Ubuntu) | `Yijian_0.1.3_amd64.deb` |
 
 安装包未签名，首次运行可能需要 SmartScreen 确认。
 
-**状态：v0.1.2，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
+**状态：v0.1.3，能装能跑，但引擎链路还在验证。** 目前是「输入 arXiv ID → 取源 → mock 占位翻译 → 编译 → 打开 PDF」，真翻译（BYOK）和阅读器尚未接入。
 
 ## 架构
 
@@ -64,7 +64,7 @@ Windows / macOS / Linux 三个 runner 上分别构建引擎、打包安装包并
 
 ```bash
 git tag -a v0.1.3 -m "译见 0.1.3"
-git push origin v0.1.2
+git push origin v0.1.3
 ```
 
 ## 当前进度
