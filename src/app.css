@@ -600,3 +600,16 @@ main.library { flex-direction: row; }
   user-select: none;
 }
 .chk input { width: 14px; height: 14px; accent-color: var(--accent); }
+
+/* ---------- 文本按钮 / 冲突弹窗 ---------- */
+button.link {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  height: auto;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.panel .tip b { color: var(--ink); }

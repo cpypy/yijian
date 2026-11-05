@@ -30,7 +30,7 @@
   type Collection = { id: string; name: string; parentId: string | null };
 
   let arxivId = "1706.03762";
-  let fresh = false;
+  let conflict: { task_id: string; status: string; progress: number } | null = null;
   let running = false;
   let progress = 0;
   let stage = "idle";
@@ -66,7 +66,11 @@
 
   let showSettings = false;
   let savedTip = "";
-  let settings: Settings = { base_url: "", model: "", api_key: "" };
+  let settings: Settings = {
+    base_url: "https://api.deepseek.com",
+    model: "deepseek-flash",
+    api_key: "",
+  };
   let glossaryText = "";
   let terms: string[] = [];
 
@@ -166,6 +170,9 @@
   }
 
   $: tree = buildTree(collections);
+  $: configured = Boolean(
+    settings.base_url.trim() && settings.model.trim() && settings.api_key.trim()
+  );
   $: tagList = allTags(library);
   $: visibleDocs = filterDocs(library, collections, activeCollection, query, activeTag);
 
@@ -294,7 +301,11 @@
   async function loadSettings() {
     try {
       const s = await invoke<Record<string, string>>("load_settings");
-      settings = { base_url: s.base_url ?? "", model: s.model ?? "", api_key: s.api_key ?? "" };
+      settings = {
+        base_url: s.base_url || "https://api.deepseek.com",
+        model: s.model || "deepseek-flash",
+        api_key: s.api_key ?? "",
+      };
     } catch {
       /* 首次运行 */
     }
@@ -464,6 +475,13 @@
     });
     const un2 = listen("engine-exit", () => (running = false));
     const un5 = listen<string>("engine-log", (e) => pushLog(e.payload));
+    const un6 = listen<{ task_id: string; status: string; progress: number }>(
+      "conflict",
+      (e) => {
+        running = false;
+        conflict = e.payload;
+      }
+    );
     const un3 = listen<{ arxiv_id: string }>("job-start", (e) => {
       arxivId = e.payload.arxiv_id;
       progress = 0;
@@ -480,6 +498,7 @@
       un3.then((f) => f());
       un4.then((f) => f());
       un5.then((f) => f());
+      un6.then((f) => f());
     };
   });
 
@@ -493,9 +512,16 @@
     const id = arxivId.trim();
     if (!id) return;
 
+    if (!configured) {
+      savedTip = "请先在设置里填 Base URL、模型和 API Key";
+      setTimeout(() => (savedTip = ""), 2500);
+      showSettings = true;
+      return;
+    }
+
     if (running) {
       try {
-        await invoke("start_run", { arxivId: id, fresh });
+        await invoke("start_run", { arxivId: id, mode: "auto" });
         savedTip = "已加入队列";
         setTimeout(() => (savedTip = ""), 1500);
       } catch (e) {
@@ -522,7 +548,23 @@
       elapsed = Math.floor((Date.now() - startedAt) / 1000);
     }, 1000);
     try {
-      await invoke("start_run", { arxivId: id, fresh });
+      await invoke("start_run", { arxivId: id, mode: "auto" });
+    } catch (e) {
+      running = false;
+      pushLog(String(e));
+    }
+  }
+
+  async function resolveConflict(mode: "resume" | "fresh") {
+    const current = conflict;
+    conflict = null;
+    if (!current) return;
+    running = true;
+    stage = "fetch";
+    progress = 0;
+    logs = [];
+    try {
+      await invoke("start_run", { arxivId: arxivId.trim(), mode });
     } catch (e) {
       running = false;
       pushLog(String(e));
@@ -868,10 +910,6 @@
         placeholder="arXiv ID 或链接，例如 1706.03762"
         on:keydown={(e) => e.key === "Enter" && start()}
       />
-      <label class="chk" title="忽略已有任务与缓存，重新翻译">
-        <input type="checkbox" bind:checked={fresh} />
-        重译
-      </label>
       <button class="primary" on:click={start}>{running ? "加入队列" : "开始"}</button>
       {#if running}
         <button class="ghost" on:click={cancel}>取消</button>
@@ -881,9 +919,10 @@
       {/if}
     </div>
 
-    {#if !settings.api_key}
+    {#if !configured}
       <div class="banner">
-        未配置模型，译文为占位文本。点右上角 ⚙ 填 Base URL / 模型 / Key。
+        还没配置模型：点右上角 ⚙ 填 API Key（Base URL 与模型默认 DeepSeek）。
+        <button class="link" on:click={() => (showSettings = true)}>去设置</button>
       </div>
     {/if}
 
@@ -1004,17 +1043,39 @@
   </div>
 {/if}
 
+{#if conflict}
+  <div class="overlay" role="presentation">
+    <div class="panel" role="dialog" aria-label="已有翻译任务">
+      <h2>这篇论文已有翻译任务</h2>
+      <p class="tip">
+        任务 <code>{conflict.task_id}</code>，状态 <b>{conflict.status}</b>，进度
+        {Math.round(conflict.progress || 0)}%。
+      </p>
+      <p class="tip">继续翻译会保留已翻好的段落；重新翻译会删掉旧任务从头开始。</p>
+      <div class="actions">
+        <button on:click={() => (conflict = null)}>取消</button>
+        <button on:click={() => resolveConflict("fresh")}>重新翻译</button>
+        <button class="primary" on:click={() => resolveConflict("resume")}>继续翻译</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if showSettings}
   <div class="overlay" on:click={() => (showSettings = false)} role="presentation">
     <div class="panel" role="dialog" aria-label="设置" on:click|stopPropagation>
       <h2>模型与术语</h2>
       <label>
         Base URL
-        <input bind:value={settings.base_url} placeholder="https://api.deepseek.com/v1" />
+        <input bind:value={settings.base_url} placeholder="https://api.deepseek.com" />
       </label>
       <label>
         模型
-        <input bind:value={settings.model} placeholder="deepseek-chat" />
+        <input bind:value={settings.model} list="model-presets" placeholder="deepseek-flash" />
+        <datalist id="model-presets">
+          <option value="deepseek-flash"></option>
+          <option value="deepseek-v4-pro"></option>
+        </datalist>
       </label>
       <label>
         API Key
@@ -1028,7 +1089,10 @@
           placeholder="transformer,变换器&#10;attention,注意力"
         ></textarea>
       </label>
-      <p class="tip">Key 存在本机 settings.json；术语表会写进引擎，影响后续所有翻译。</p>
+      <p class="tip">
+        三项都必填。Base URL 与模型默认 DeepSeek（<code>https://api.deepseek.com</code> /
+        <code>deepseek-flash</code>）；Key 存在本机 settings.json；术语表会写进引擎，影响后续所有翻译。
+      </p>
       <div class="actions">
         <button on:click={() => (showSettings = false)}>取消</button>
         <button class="primary" on:click={saveSettings}>保存</button>

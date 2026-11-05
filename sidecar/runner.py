@@ -281,18 +281,23 @@ def _sync_glossary() -> None:
         emit(event="log", line=f"已应用术语表：{len(lines)} 条")
 
 
+def _arxiv_base(value: str) -> str:
+    """任务表里 arxiv_id 带版本号（1706.03762v7），比较前统一去掉。"""
+    return re.sub(r"v\d+$", "", str(value or "").strip())
+
+
 def _find_existing_task(client, arxiv_id: str) -> tuple[str, str] | None:
-    """409 时按 arXiv ID 找到那个未完成任务（响应体里没有 task_id）。"""
+    """按 arXiv ID 找未完成任务（409 的兜底路径）。"""
     try:
         tasks = client.get("/api/tasks").json().get("tasks", [])
     except Exception:  # noqa: BLE001
         return None
 
-    base = arxiv_id.split("v")[0]
+    base = _arxiv_base(arxiv_id)
     candidates = [
         t
         for t in tasks
-        if str(t.get("arxiv_id") or "") == base
+        if _arxiv_base(t.get("arxiv_id")) == base
         and t.get("status") not in {"done", "partial"}
     ]
     if not candidates:
@@ -302,12 +307,50 @@ def _find_existing_task(client, arxiv_id: str) -> tuple[str, str] | None:
     return str(top["task_id"]), str(top.get("status") or "")
 
 
-def run(arxiv_id: str, fresh: bool = False) -> int:
+RETRYABLE = {"interrupted", "fault", "partial", "cancelled", "needs_auth"}
+ACTIVE = {"queued", "fetching", "parsing", "translating", "compiling", "judging"}
+
+
+def _list_tasks(client) -> list[dict]:
+    try:
+        return client.get("/api/tasks").json().get("tasks", [])
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _pick_task(tasks: list[dict], arxiv_id: str) -> dict | None:
+    """只挑「没跑完」的任务：已完成的不该打扰用户。"""
+    base = _arxiv_base(arxiv_id)
+    cands = [
+        t
+        for t in tasks
+        if _arxiv_base(t.get("arxiv_id")) == base
+        and t.get("status") not in {"done", "partial"}
+    ]
+    if not cands:
+        return None
+    cands.sort(key=lambda t: t.get("updated_at") or 0, reverse=True)
+    return cands[0]
+
+
+def _read_new(path: Path, offset: int, limit: int = 16000) -> tuple[str, int]:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            fh.seek(offset)
+            chunk = fh.read(limit)
+            return chunk, fh.tell()
+    except FileNotFoundError:
+        return "", offset
+
+
+def run(arxiv_id: str, mode: str = "auto") -> int:
+    """mode: auto（有旧任务就报冲突）/ resume（续跑）/ fresh（删掉重来）"""
     import httpx
 
     _prepare()
     _sync_glossary()
     started = time.time()
+
     job_id = uuid.uuid4().hex[:12]
     work = JOBS / job_id
     work.mkdir(parents=True, exist_ok=True)
@@ -329,75 +372,156 @@ def run(arxiv_id: str, fresh: bool = False) -> int:
             client = httpx.Client(
                 base_url=f"http://127.0.0.1:{port}",
                 timeout=30.0,
-                trust_env=False,  # 本地回环不走代理
+                trust_env=False,
             )
             if not _wait_server(client):
                 emit(event="error", message="引擎服务启动失败，详见 run.log")
                 return 1
 
-            # 先查后建：上次异常退出会留下 interrupted 任务，直接 POST 会被判重（409）
-            existing = _find_existing_task(client, arxiv_id)
-            if existing:
-                task_id, status = existing
-                body = {"options": {"prefer": "fresh"}} if fresh else {}
-                retry = client.post(f"/api/task/{task_id}/retry", json=body)
-                if retry.status_code >= 400:
-                    emit(
-                        event="error",
-                        message=(
-                            f"该论文已有任务（{status}），续跑被拒："
-                            f"{retry.status_code} {retry.text[:160]}"
-                        ),
-                    )
-                    return 1
+            existing = _pick_task(_list_tasks(client), arxiv_id)
+            task_id: str | None = None
+
+            # 已有任务，且用户还没决定：交给界面问「继续 / 重译」
+            if existing and mode == "auto":
                 emit(
-                    event="log",
-                    line=f"发现未完成任务 {task_id}（{status}），"
-                    + ("已重新开始" if fresh else "已继续翻译"),
+                    event="conflict",
+                    task_id=str(existing.get("task_id") or ""),
+                    status=str(existing.get("status") or ""),
+                    progress=existing.get("progress") or 0,
                 )
-            else:
+                return 0
+
+            if existing and mode == "resume":
+                task_id = str(existing["task_id"])
+                status = str(existing.get("status") or "")
+                if status in RETRYABLE:
+                    resp = client.post(f"/api/task/{task_id}/retry", json={})
+                    if resp.status_code >= 400:
+                        emit(
+                            event="error",
+                            message=f"续跑失败：{resp.status_code} {resp.text[:160]}",
+                        )
+                        return 1
+                    emit(event="log", line=f"继续上次任务（{status}）")
+                else:
+                    emit(event="log", line=f"附着到正在运行的任务（{status}）")
+
+            elif existing and mode == "fresh":
+                task_id = str(existing["task_id"])
+                status = str(existing.get("status") or "")
+                if status in ACTIVE:
+                    client.post(f"/api/task/{task_id}/cancel")
+                    time.sleep(1.5)
+                client.delete(f"/api/task/{task_id}")
+                emit(event="log", line="已删除旧任务，重新开始")
+                task_id = None
+
+            if task_id is None:
                 resp = client.post(f"/api/arxiv/{arxiv_id}/translate", json={})
-                if resp.status_code >= 400:
+                if resp.status_code == 409:
+                    # 服务端说已有活跃任务，响应体里带 task_id
+                    try:
+                        detail = resp.json()
+                    except Exception:  # noqa: BLE001
+                        detail = {}
+                    dup = str(detail.get("task_id") or "")
+
+                    if not dup:
+                        emit(event="error", message=f"提交被拒（409）：{resp.text[:200]}")
+                        return 1
+
+                    if mode == "auto":
+                        emit(
+                            event="conflict",
+                            task_id=dup,
+                            status=str(detail.get("code") or "active"),
+                            progress=0,
+                        )
+                        return 0
+
+                    if mode == "resume":
+                        emit(event="log", line=f"附着到已有任务 {dup}")
+                        task_id = dup
+                    else:  # fresh
+                        client.post(f"/api/task/{dup}/cancel")
+                        time.sleep(1.5)
+                        client.delete(f"/api/task/{dup}")
+                        retry = client.post(f"/api/arxiv/{arxiv_id}/translate", json={})
+                        if retry.status_code >= 400:
+                            emit(
+                                event="error",
+                                message=f"重建任务失败：{retry.status_code} {retry.text[:160]}",
+                            )
+                            return 1
+                        task_id = retry.json()["task_id"]
+                        emit(event="log", line=f"已删除旧任务，重建 {task_id}")
+                elif resp.status_code >= 400:
                     emit(
                         event="error",
                         message=f"提交任务失败：{resp.status_code} {resp.text[:200]}",
                     )
                     return 1
-                task_id = resp.json()["task_id"]
-                emit(event="log", line=f"任务 {task_id} 已创建")
+                else:
+                    task_id = resp.json()["task_id"]
+                    emit(event="log", line=f"任务 {task_id} 已创建")
 
             last_stage = ""
-            last_log = 0.0
-            task: dict = {}
+            last_done = -1
+            log_offset = 0
+            model_failures = 0
+            stall_ticks = 0
+
             while True:
                 time.sleep(1.0)
                 task = client.get(f"/api/task/{task_id}").json()
                 status = str(task.get("status") or "")
                 stage, pct = STATUS_STAGE.get(status, ("fetch", 2))
-                progress = task.get("progress")
-                if isinstance(progress, (int, float)) and status not in {"done", "partial"}:
-                    pct = min(95.0, float(progress))
+
+                progress_value = task.get("progress")
+                if isinstance(progress_value, (int, float)) and status not in {"done", "partial"}:
+                    pct = min(95.0, float(progress_value))
 
                 if stage != last_stage:
                     emit(event="stage", stage=stage, progress=pct)
                     last_stage = stage
 
                 counters = task.get("counters") or {}
-                if time.time() - last_log > 3:
-                    last_log = time.time()
-                    total = counters.get("total") or 0
-                    done = counters.get("done") or 0
-                    if total:
-                        emit(event="log", line=f"翻译 {done}/{total}")
+                done = int(counters.get("done") or 0)
+                total = int(counters.get("total") or 0)
+                if total and done != last_done:
+                    last_done = done
+                    stall_ticks = 0
+                    emit(event="log", line=f"翻译 {done}/{total}")
+                elif status == "translating":
+                    stall_ticks += 1
+
+                # 把引擎侧 warning/error 透到界面，502/401 累计到阈值就快退
+                chunk, log_offset = _read_new(log_path, log_offset)
+                for line in chunk.splitlines():
+                    low = line.lower()
+                    if "warning" in low or "error" in low or "失败" in line:
+                        text_line = line.strip()[:300]
+                        emit(event="log", line=text_line)
+                        if "502" in text_line or "401" in text_line:
+                            model_failures += 1
+
+                if model_failures >= 6:
+                    emit(
+                        event="error",
+                        message="模型端点连续失败（502/401）：请检查 Base URL、模型名与 API Key",
+                    )
+                    return 1
+                if stall_ticks > 300:
+                    emit(event="error", message="翻译超过 5 分钟无进展，已中止")
+                    return 1
 
                 if status in {"done", "partial"}:
                     break
                 if status in {"failed", "cancelled", "needs_auth"}:
-                    msg = task.get("message") or status
-                    emit(event="error", message=f"任务失败：{msg}")
+                    message = task.get("message") or status
+                    emit(event="error", message=f"任务失败：{message}")
                     return 1
 
-            # dual.json 里有每个占位符的原始 LaTeX（公式/引用），阅读器要靠它渲染
             dual = TEXLATE_DATA / "tasks" / task_id / "dual.json"
             chunks: list[dict] = []
             if dual.exists():
@@ -434,7 +558,6 @@ def run(arxiv_id: str, fresh: bool = False) -> int:
                 ),
                 encoding="utf-8",
             )
-            count = len(chunks)
 
             pdf = TEXLATE_DATA / "tasks" / task_id / "zh.pdf"
             counters = task.get("counters") or {}
@@ -443,7 +566,7 @@ def run(arxiv_id: str, fresh: bool = False) -> int:
                 status=task.get("status", "done"),
                 pdf=str(pdf) if pdf.exists() else "",
                 segments=str(segments_path),
-                chunks=count,
+                chunks=len(chunks),
                 tokens=counters.get("tokens") or 0,
                 seconds=round(time.time() - started, 1),
                 job=job_id,
@@ -543,11 +666,12 @@ def main() -> int:
         return 0
 
     if len(sys.argv) >= 3 and sys.argv[1] == "--run":
-        fresh = False
+        mode = "auto"
         if "--mode" in sys.argv:
             idx = sys.argv.index("--mode")
-            fresh = idx + 1 < len(sys.argv) and sys.argv[idx + 1] == "fresh"
-        return run(sys.argv[2], fresh)
+            if idx + 1 < len(sys.argv):
+                mode = sys.argv[idx + 1]
+        return run(sys.argv[2], mode)
 
     emit(event="error", message="用法: yijian-engine --run <arxiv_id>")
     return 2

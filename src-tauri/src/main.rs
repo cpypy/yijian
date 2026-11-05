@@ -54,7 +54,7 @@ fn engine_path(app: &AppHandle) -> PathBuf {
 #[derive(Default)]
 struct RunState {
     pid: std::sync::Mutex<Option<u32>>,
-    queue: std::sync::Mutex<std::collections::VecDeque<(String, bool)>>,
+    queue: std::sync::Mutex<std::collections::VecDeque<(String, String)>>,
     busy: std::sync::atomic::AtomicBool,
 }
 
@@ -84,7 +84,7 @@ fn cancel_run(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn spawn_engine(app: &AppHandle, arxiv_id: &str, fresh: bool) -> Result<(), String> {
+fn spawn_engine(app: &AppHandle, arxiv_id: &str, mode: &str) -> Result<(), String> {
     let exe = engine_path(app);
     if !exe.exists() {
         return Err(format!("引擎不存在：{}", exe.display()));
@@ -100,9 +100,7 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str, fresh: bool) -> Result<(), Stri
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1");
 
-    if fresh {
-        command.arg("--mode").arg("fresh");
-    }
+    command.arg("--mode").arg(mode);
 
     #[cfg(windows)]
     {
@@ -166,17 +164,17 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str, fresh: bool) -> Result<(), Stri
 }
 
 #[tauri::command]
-fn start_run(app: AppHandle, arxiv_id: String, fresh: Option<bool>) -> Result<(), String> {
+fn start_run(app: AppHandle, arxiv_id: String, mode: Option<String>) -> Result<(), String> {
     let id = arxiv_id.trim().to_string();
     if id.is_empty() {
         return Err("arXiv ID 为空".into());
     }
-    let fresh = fresh.unwrap_or(false);
+    let mode = mode.unwrap_or_else(|| "auto".to_string());
 
     {
         let state = app.state::<RunState>();
         let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
-        queue.push_back((id, fresh));
+        queue.push_back((id, mode));
         let _ = app.emit("queue", queue.len());
     }
 
@@ -207,13 +205,13 @@ fn spawn_worker(app: AppHandle) {
                 item
             };
 
-            let Some((id, fresh)) = next else { break };
+            let Some((id, mode)) = next else { break };
 
             let _ = app.emit(
                 "job-start",
-                serde_json::json!({ "arxiv_id": id, "fresh": fresh }),
+                serde_json::json!({ "arxiv_id": id, "mode": mode }),
             );
-            if let Err(message) = spawn_engine(&app, &id, fresh) {
+            if let Err(message) = spawn_engine(&app, &id, &mode) {
                 let _ = app.emit(
                     "engine-event",
                     serde_json::json!({ "event": "error", "message": message }),
