@@ -54,7 +54,7 @@ fn engine_path(app: &AppHandle) -> PathBuf {
 #[derive(Default)]
 struct RunState {
     pid: std::sync::Mutex<Option<u32>>,
-    queue: std::sync::Mutex<std::collections::VecDeque<String>>,
+    queue: std::sync::Mutex<std::collections::VecDeque<(String, bool)>>,
     busy: std::sync::atomic::AtomicBool,
 }
 
@@ -84,7 +84,7 @@ fn cancel_run(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
+fn spawn_engine(app: &AppHandle, arxiv_id: &str, fresh: bool) -> Result<(), String> {
     let exe = engine_path(app);
     if !exe.exists() {
         return Err(format!("引擎不存在：{}", exe.display()));
@@ -94,7 +94,15 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
         .arg("--run")
         .arg(arxiv_id)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        // 引擎侧 print() 默认走系统区域编码（中文 Windows 是 GBK），
+        // 遇到 ö 这类字符会直接崩，必须强制 UTF-8
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1");
+
+    if fresh {
+        command.arg("--mode").arg("fresh");
+    }
 
     #[cfg(windows)]
     {
@@ -126,6 +134,16 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
         }
     }
 
+    // stderr 必须有人读：否则崩溃信息全堆在管道里，前端只看到“什么都没发生”
+    if let Some(stderr) = child.stderr.take() {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let _ = handle.emit("engine-log", format!("[stderr] {line}"));
+            }
+        });
+    }
+
     if let Some(stdout) = child.stdout.take() {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             match serde_json::from_str::<serde_json::Value>(&line) {
@@ -148,16 +166,17 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_run(app: AppHandle, arxiv_id: String) -> Result<(), String> {
+fn start_run(app: AppHandle, arxiv_id: String, fresh: Option<bool>) -> Result<(), String> {
     let id = arxiv_id.trim().to_string();
     if id.is_empty() {
         return Err("arXiv ID 为空".into());
     }
+    let fresh = fresh.unwrap_or(false);
 
     {
         let state = app.state::<RunState>();
         let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
-        queue.push_back(id);
+        queue.push_back((id, fresh));
         let _ = app.emit("queue", queue.len());
     }
 
@@ -188,10 +207,13 @@ fn spawn_worker(app: AppHandle) {
                 item
             };
 
-            let Some(id) = next else { break };
+            let Some((id, fresh)) = next else { break };
 
-            let _ = app.emit("job-start", serde_json::json!({ "arxiv_id": id }));
-            if let Err(message) = spawn_engine(&app, &id) {
+            let _ = app.emit(
+                "job-start",
+                serde_json::json!({ "arxiv_id": id, "fresh": fresh }),
+            );
+            if let Err(message) = spawn_engine(&app, &id, fresh) {
                 let _ = app.emit(
                     "engine-event",
                     serde_json::json!({ "event": "error", "message": message }),

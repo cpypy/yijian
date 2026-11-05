@@ -588,3 +588,15 @@ main.library { flex-direction: row; }
 .hit:hover { background: #f6f2e8; }
 .hitid { font-size: 11px; color: var(--muted); font-family: var(--serif); }
 .hitsnip { font-size: 12px; color: #4a463e; line-height: 1.5; }
+
+/* ---------- 重译开关 ---------- */
+.chk {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  user-select: none;
+}
+.chk input { width: 14px; height: 14px; accent-color: var(--accent); }

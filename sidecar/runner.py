@@ -281,7 +281,28 @@ def _sync_glossary() -> None:
         emit(event="log", line=f"已应用术语表：{len(lines)} 条")
 
 
-def run(arxiv_id: str) -> int:
+def _find_existing_task(client, arxiv_id: str) -> tuple[str, str] | None:
+    """409 时按 arXiv ID 找到那个未完成任务（响应体里没有 task_id）。"""
+    try:
+        tasks = client.get("/api/tasks").json().get("tasks", [])
+    except Exception:  # noqa: BLE001
+        return None
+
+    base = arxiv_id.split("v")[0]
+    candidates = [
+        t
+        for t in tasks
+        if str(t.get("arxiv_id") or "") == base
+        and t.get("status") not in {"done", "partial"}
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: t.get("updated_at") or 0, reverse=True)
+    top = candidates[0]
+    return str(top["task_id"]), str(top.get("status") or "")
+
+
+def run(arxiv_id: str, fresh: bool = False) -> int:
     import httpx
 
     _prepare()
@@ -314,12 +335,36 @@ def run(arxiv_id: str) -> int:
                 emit(event="error", message="引擎服务启动失败，详见 run.log")
                 return 1
 
-            resp = client.post(f"/api/arxiv/{arxiv_id}/translate", json={})
-            if resp.status_code >= 400:
-                emit(event="error", message=f"提交任务失败：{resp.status_code} {resp.text[:200]}")
-                return 1
-            task_id = resp.json()["task_id"]
-            emit(event="log", line=f"任务 {task_id} 已创建")
+            # 先查后建：上次异常退出会留下 interrupted 任务，直接 POST 会被判重（409）
+            existing = _find_existing_task(client, arxiv_id)
+            if existing:
+                task_id, status = existing
+                body = {"options": {"prefer": "fresh"}} if fresh else {}
+                retry = client.post(f"/api/task/{task_id}/retry", json=body)
+                if retry.status_code >= 400:
+                    emit(
+                        event="error",
+                        message=(
+                            f"该论文已有任务（{status}），续跑被拒："
+                            f"{retry.status_code} {retry.text[:160]}"
+                        ),
+                    )
+                    return 1
+                emit(
+                    event="log",
+                    line=f"发现未完成任务 {task_id}（{status}），"
+                    + ("已重新开始" if fresh else "已继续翻译"),
+                )
+            else:
+                resp = client.post(f"/api/arxiv/{arxiv_id}/translate", json={})
+                if resp.status_code >= 400:
+                    emit(
+                        event="error",
+                        message=f"提交任务失败：{resp.status_code} {resp.text[:200]}",
+                    )
+                    return 1
+                task_id = resp.json()["task_id"]
+                emit(event="log", line=f"任务 {task_id} 已创建")
 
             last_stage = ""
             last_log = 0.0
@@ -470,6 +515,13 @@ def discover() -> int:
 
 
 def main() -> int:
+    # Windows 上 stdout 默认是 GBK，热榜里的 ö 会直接抛 UnicodeEncodeError
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     if len(sys.argv) > 1 and sys.argv[1] == "--discover":
         _patch_texlate()
         return discover()
@@ -491,7 +543,11 @@ def main() -> int:
         return 0
 
     if len(sys.argv) >= 3 and sys.argv[1] == "--run":
-        return run(sys.argv[2])
+        fresh = False
+        if "--mode" in sys.argv:
+            idx = sys.argv.index("--mode")
+            fresh = idx + 1 < len(sys.argv) and sys.argv[idx + 1] == "fresh"
+        return run(sys.argv[2], fresh)
 
     emit(event="error", message="用法: yijian-engine --run <arxiv_id>")
     return 2

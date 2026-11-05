@@ -30,6 +30,7 @@
   type Collection = { id: string; name: string; parentId: string | null };
 
   let arxivId = "1706.03762";
+  let fresh = false;
   let running = false;
   let progress = 0;
   let stage = "idle";
@@ -462,6 +463,7 @@
       }
     });
     const un2 = listen("engine-exit", () => (running = false));
+    const un5 = listen<string>("engine-log", (e) => pushLog(e.payload));
     const un3 = listen<{ arxiv_id: string }>("job-start", (e) => {
       arxivId = e.payload.arxiv_id;
       progress = 0;
@@ -477,6 +479,7 @@
       un2.then((f) => f());
       un3.then((f) => f());
       un4.then((f) => f());
+      un5.then((f) => f());
     };
   });
 
@@ -492,7 +495,7 @@
 
     if (running) {
       try {
-        await invoke("start_run", { arxivId: id });
+        await invoke("start_run", { arxivId: id, fresh });
         savedTip = "已加入队列";
         setTimeout(() => (savedTip = ""), 1500);
       } catch (e) {
@@ -519,7 +522,7 @@
       elapsed = Math.floor((Date.now() - startedAt) / 1000);
     }, 1000);
     try {
-      await invoke("start_run", { arxivId: id });
+      await invoke("start_run", { arxivId: id, fresh });
     } catch (e) {
       running = false;
       pushLog(String(e));
@@ -865,6 +868,10 @@
         placeholder="arXiv ID 或链接，例如 1706.03762"
         on:keydown={(e) => e.key === "Enter" && start()}
       />
+      <label class="chk" title="忽略已有任务与缓存，重新翻译">
+        <input type="checkbox" bind:checked={fresh} />
+        重译
+      </label>
       <button class="primary" on:click={start}>{running ? "加入队列" : "开始"}</button>
       {#if running}
         <button class="ghost" on:click={cancel}>取消</button>
