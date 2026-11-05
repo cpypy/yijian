@@ -102,6 +102,15 @@ fn spawn_engine(app: &AppHandle, arxiv_id: &str, mode: &str) -> Result<(), Strin
 
     command.arg("--mode").arg(mode);
 
+    // 单批字符数（推理模型的 thinking 也吃 max_tokens）
+    if let Ok(text) = std::fs::read_to_string(settings_path()) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(chars) = value.get("batch_chars").and_then(|v| v.as_u64()) {
+                command.env("YIJIAN_BATCH_CHARS", chars.to_string());
+            }
+        }
+    }
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -223,6 +232,46 @@ fn spawn_worker(app: AppHandle) {
         state.busy.store(false, Ordering::SeqCst);
         let _ = app.emit("engine-exit", ());
     });
+}
+
+
+#[tauri::command]
+fn queue_list(app: AppHandle) -> Vec<String> {
+    let state = app.state::<RunState>();
+    match state.queue.lock() {
+        Ok(q) => q.iter().map(|(id, _)| id.clone()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+fn queue_remove(app: AppHandle, index: usize) -> Result<(), String> {
+    let state = app.state::<RunState>();
+    {
+        let mut q = state.queue.lock().map_err(|e| e.to_string())?;
+        if index < q.len() {
+            q.remove(index);
+        }
+        let n = q.len();
+        let _ = app.emit("queue", n);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn queue_move(app: AppHandle, index: usize, delta: i32) -> Result<(), String> {
+    let state = app.state::<RunState>();
+    let mut q = state.queue.lock().map_err(|e| e.to_string())?;
+    let len = q.len();
+    if index < len {
+        let target = (index as i32 + delta).clamp(0, len as i32 - 1) as usize;
+        if target != index {
+            if let Some(item) = q.remove(index) {
+                q.insert(target, item);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -470,6 +519,9 @@ fn main() {
             save_library,
             discover,
             clear_queue,
+            queue_list,
+            queue_remove,
+            queue_move,
             load_collections,
             save_collections,
             search_text

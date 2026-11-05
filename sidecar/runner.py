@@ -46,8 +46,11 @@ TECTONIC_CACHE = DATA / "tectonic-cache"
 BUNDLED_TEXBUNDLE = APP_DIR.parent / "texbundle"
 
 TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
-#: 单批字符上限（推理模型的 thinking 也吃 max_tokens，默认 12000 容易截断）
-BATCH_CHARS_CAP = int(os.environ.get("YIJIAN_BATCH_CHARS", "4000"))
+#: 单次输出预算：推理模型的思考也吃 max_tokens，实测 flash 接受 131072，
+#: 这里取 65536，既够思考又不会让服务端直接拒绝
+MAX_TOKENS = int(os.environ.get("YIJIAN_MAX_TOKENS", "65536"))
+#: 单批字符上限（配合大预算，适当放宽以提升速度）
+BATCH_CHARS_CAP = int(os.environ.get("YIJIAN_BATCH_CHARS", "6000"))
 
 #: texlate 任务状态 → (阶段, 进度)
 STATUS_STAGE = {
@@ -107,11 +110,14 @@ def _patch_texlate() -> None:
         }
     )
 
-    # 推理型模型（deepseek-flash 等）会把思考 token 也算进 max_tokens，
-    # 默认 12000 字符一批容易触发 finish_reason=length。把单批压小，
-    # 让「思考 + 译文」装得下 8192 的输出预算。
+    # 推理型模型（deepseek-flash 等）的思考也吃 max_tokens。实测该模型
+    # 接受 131072，而 texlate 默认只要 8192（截断后重试也才 32768），
+    # 长段落必然烧穿。这里把预算抬高，并让截断重试也用同一个上限。
     try:
+        import texlate.xlat.pipeline.translator as _translator
         import texlate.server.worker.translate.stage as _stage
+
+        _translator.LENGTH_RETRY_MAX_TOKENS = MAX_TOKENS
 
         if not getattr(_stage, "_yijian_batch_patched", False):
             _orig_pc = _stage.PipelineConfig
@@ -120,6 +126,7 @@ def _patch_texlate() -> None:
                 def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
                     kwargs.setdefault("batch_max_chars", BATCH_CHARS_CAP)
                     kwargs.setdefault("hard_limit", BATCH_CHARS_CAP // 2)
+                    kwargs.setdefault("max_tokens", MAX_TOKENS)
                     super().__init__(*args, **kwargs)
 
             _stage.PipelineConfig = _PatchedPipelineConfig

@@ -12,7 +12,7 @@
     zh: string;
     ph: Record<string, string>;
   };
-  type Settings = { base_url: string; model: string; api_key: string };
+  type Settings = { base_url: string; model: string; api_key: string; batch_chars?: number };
   type Doc = {
     id: string;
     arxivId: string;
@@ -70,6 +70,7 @@
     base_url: "https://api.deepseek.com",
     model: "deepseek-flash",
     api_key: "",
+    batch_chars: 6000,
   };
   let glossaryText = "";
   let terms: string[] = [];
@@ -305,6 +306,7 @@
         base_url: s.base_url || "https://api.deepseek.com",
         model: s.model || "deepseek-flash",
         api_key: s.api_key ?? "",
+        batch_chars: Number(s.batch_chars) || 6000,
       };
     } catch {
       /* 首次运行 */
@@ -490,7 +492,10 @@
       notes = {};
       running = true;
     });
-    const un4 = listen<number>("queue", (e) => (queueLen = e.payload));
+    const un4 = listen<number>("queue", (e) => {
+      queueLen = e.payload;
+      if (showQueue) loadQueue();
+    });
     return () => {
       un1.then((f) => f());
       un2.then((f) => f());
@@ -572,6 +577,41 @@
   async function clearQueue() {
     try {
       await invoke("clear_queue");
+      queueItems = [];
+    } catch (e) {
+      pushLog(String(e));
+    }
+  }
+
+  let queueItems: string[] = [];
+  let showQueue = false;
+
+  async function loadQueue() {
+    try {
+      queueItems = await invoke<string[]>("queue_list");
+    } catch {
+      queueItems = [];
+    }
+  }
+
+  async function toggleQueue() {
+    showQueue = !showQueue;
+    if (showQueue) await loadQueue();
+  }
+
+  async function removeQueue(index: number) {
+    try {
+      await invoke("queue_remove", { index });
+      await loadQueue();
+    } catch (e) {
+      pushLog(String(e));
+    }
+  }
+
+  async function moveQueue(index: number, delta: number) {
+    try {
+      await invoke("queue_move", { index, delta });
+      await loadQueue();
     } catch (e) {
       pushLog(String(e));
     }
@@ -913,9 +953,28 @@
         <button class="ghost" on:click={cancel}>取消</button>
       {/if}
       {#if queueLen > 0}
-        <button class="ghost" on:click={clearQueue}>清空队列 {queueLen}</button>
+        <button class="ghost" on:click={toggleQueue}>队列 {queueLen}</button>
       {/if}
     </div>
+
+    {#if showQueue}
+      <div class="queuebox">
+        {#if !queueItems.length}
+          <div class="qempty">队列是空的</div>
+        {:else}
+          {#each queueItems as qid, i (qid + "-" + i)}
+            <div class="qrow">
+              <span class="qidx">{i + 1}</span>
+              <span class="qid">{qid}</span>
+              <button class="mini" title="上移" on:click={() => moveQueue(i, -1)}>↑</button>
+              <button class="mini" title="下移" on:click={() => moveQueue(i, 1)}>↓</button>
+              <button class="mini" on:click={() => removeQueue(i)}>移除</button>
+            </div>
+          {/each}
+          <button class="ghost sm" on:click={clearQueue}>清空队列</button>
+        {/if}
+      </div>
+    {/if}
 
     {#if !configured}
       <div class="banner">
@@ -1078,6 +1137,10 @@
       <label>
         API Key
         <input type="password" bind:value={settings.api_key} placeholder="sk-..." />
+      </label>
+      <label>
+        单批字数（越小越稳，默认 6000）
+        <input type="number" min="500" max="12000" step="500" bind:value={settings.batch_chars} />
       </label>
       <label>
         术语表（每行 <code>英文,中文</code>）
