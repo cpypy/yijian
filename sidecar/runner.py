@@ -134,6 +134,26 @@ def _patch_texlate() -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    # DeepSeek 默认开启思考（effort=high），思考 token 与译文抢同一个输出
+    # 预算；长段落会把预算烧穿，表现为 finish_reason=length。翻译不需要
+    # 思考过程，直接关掉。只对 deepseek provider 生效，不影响其他端点。
+    try:
+        from texlate.xlat.client import ChatClient
+
+        if not getattr(ChatClient, "_yijian_no_think", False):
+            _orig_body = ChatClient._openai_body
+
+            def _patched_body(self, model, messages, options, *, stream):  # noqa: ANN001
+                body = _orig_body(model, messages, options, stream=stream)
+                if str(getattr(self, "provider", "")) == "deepseek":
+                    body.setdefault("thinking", {"type": "disabled"})
+                return body
+
+            ChatClient._openai_body = _patched_body  # type: ignore[method-assign]
+            ChatClient._yijian_no_think = True  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        pass
+
 
 def _env() -> dict[str, str]:
     env = os.environ.copy()
