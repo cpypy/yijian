@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy, tick } from "svelte";
   import * as katex from "katex";
+  import PdfViewer from "./PdfViewer.svelte";
 
   type Segment = {
     seq: number;
@@ -18,6 +19,7 @@
     arxivId: string;
     addedAt: number;
     pdf: string;
+    enPdf?: string;
     segments: string;
     progress: number;
     lastSeq: number;
@@ -36,6 +38,7 @@
   let stage = "idle";
   let logs: string[] = [];
   let pdf = "";
+  let enPdf = "";
   let startedAt = 0;
   let elapsed = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -380,6 +383,12 @@
     currentDocId = d.id;
     openedFromLibrary = true;
     readerQuery = "";
+    pdf = d.pdf || "";
+    enPdf = d.enPdf || "";
+    if (pdf) {
+      view = "read";
+      return;
+    }
     if (!d.segments) {
       nav = "work";
       view = "work";
@@ -452,6 +461,7 @@
         progress = 100;
         stage = "done";
         pdf = p.pdf || "";
+        enPdf = p.en_pdf || "";
         lastTokens = p.tokens ?? 0;
         lastSeconds = p.seconds ?? 0;
         pushLog(`✓ 完成：${p.chunks ?? 0} 段`);
@@ -464,6 +474,7 @@
             upsertDoc({
               arxivId: currentDocId,
               pdf,
+              enPdf,
               segments: p.segments,
               progress: 0,
               lastSeq: 0,
@@ -1053,68 +1064,47 @@
         ← 返回
       </button>
       <span class="rid">{arxivId}</span>
-      <span class="rmeta">
-        {readerQuery.trim() ? `${shownSegments.length}/${segments.length}` : `${segments.length} 段`}
-      </span>
-      <input class="rsearch" bind:value={readerQuery} placeholder="文内搜索…" />
+      <span class="rmeta">{mode === "both" ? "中英对照" : mode === "en" ? "原文" : "译文"}</span>
       <span class="grow"></span>
-      <button class="seg-btn" class:on={mode === "en"} on:click={() => toggleMode("en")}>原文</button>
-      <button class="seg-btn" class:on={mode === "both"} on:click={() => toggleMode("both")}>对照</button>
-      <button class="seg-btn" class:on={mode === "zh"} on:click={() => toggleMode("zh")}>译文</button>
+      <button class="seg-btn" class:on={mode === "en"} on:click={() => (mode = "en")}>原文</button>
+      <button class="seg-btn" class:on={mode === "both"} on:click={() => (mode = "both")}>
+        对照
+      </button>
+      <button class="seg-btn" class:on={mode === "zh"} on:click={() => (mode = "zh")}>译文</button>
       {#if pdf}
-        <button class="ghost" on:click={openPdf}>PDF</button>
+        <button class="ghost" on:click={openPdf}>系统打开</button>
       {/if}
     </div>
 
-    <div
-      class="doc"
-      class:only-en={mode === "en"}
-      class:only-zh={mode === "zh"}
-      bind:this={docEl}
-      on:scroll={onDocScroll}
-      on:click|capture={onDocClick}
-    >
-      {#each shownSegments as s (s.seq)}
-        <div
-          class="seg"
-          class:title={s.kind === "section_title"}
-          class:active={selected === s.seq}
-          data-seq={s.seq}
-          on:click={() => (selected = selected === s.seq ? -1 : s.seq)}
-          role="button"
-          tabindex="0"
-          on:keydown={(e) => e.key === "Enter" && (selected = s.seq)}
-        >
-          <button
-            class="note-btn"
-            title="笔记"
-            on:click|stopPropagation={() => (noteOpen = noteOpen === s.seq ? -1 : s.seq)}
-          >
-            ✎
-          </button>
-          <div class="en">{@html renderSegment(s.en, s.ph)}</div>
-          <div class="zh">
-            {#if s.zh}
-              {@html renderSegment(s.zh, s.ph)}
-            {:else}
-              （未翻译）
-            {/if}
-            {#if notes[s.seq]}
-              <div class="note-view">{notes[s.seq]}</div>
-            {/if}
+    <div class="pdfarea" class:dual={mode === "both"}>
+      {#if mode === "both"}
+        {#if enPdf}
+          <div class="pane">
+            <div class="panehead">原文</div>
+            <PdfViewer src={enPdf} />
           </div>
-        </div>
-        {#if noteOpen === s.seq}
-          <div class="note-editor">
-            <textarea
-              rows="3"
-              placeholder="给这一段写点笔记…（自动保存）"
-              value={notes[s.seq] ?? ""}
-              on:input={(e) => setNote(s.seq, (e.target as HTMLTextAreaElement).value)}
-            ></textarea>
-          </div>
+        {:else}
+          <div class="pane"><div class="pdfstate">没有原文 PDF</div></div>
         {/if}
-      {/each}
+        {#if pdf}
+          <div class="pane">
+            <div class="panehead">译文</div>
+            <PdfViewer src={pdf} />
+          </div>
+        {:else}
+          <div class="pane"><div class="pdfstate">没有译文 PDF</div></div>
+        {/if}
+      {:else if mode === "en"}
+        {#if enPdf}
+          <PdfViewer src={enPdf} />
+        {:else}
+          <div class="pdfstate">没有原文 PDF</div>
+        {/if}
+      {:else if pdf}
+        <PdfViewer src={pdf} />
+      {:else}
+        <div class="pdfstate">没有译文 PDF</div>
+      {/if}
     </div>
   </main>
 {/if}

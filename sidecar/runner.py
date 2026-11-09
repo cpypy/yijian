@@ -629,11 +629,13 @@ def run(arxiv_id: str, mode: str = "auto") -> int:
             )
 
             pdf = TEXLATE_DATA / "tasks" / task_id / "zh.pdf"
+            en_pdf = TEXLATE_DATA / "tasks" / task_id / "en.pdf"
             counters = task.get("counters") or {}
             emit(
                 event="done",
                 status=task.get("status", "done"),
                 pdf=str(pdf) if pdf.exists() else "",
+                en_pdf=str(en_pdf) if en_pdf.exists() else "",
                 segments=str(segments_path),
                 chunks=len(chunks),
                 tokens=counters.get("tokens") or 0,

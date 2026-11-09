@@ -1,7 +1,7 @@
 {
   "name": "yijian",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
-    "katex": "^0.16.11"
+    "katex": "^0.16.11",
+    "pdfjs-dist": "^6.5.438"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
