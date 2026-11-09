@@ -1,4 +1,4 @@
-"""译见引擎 sidecar。
+﻿"""译见引擎 sidecar。
 
 被 Tauri 壳以子进程方式拉起，参数 `--run <arxiv_id>`，
 在 stdout 上逐行输出 JSON 事件，由 Rust 侧转发给前端。
@@ -314,8 +314,67 @@ def _find_in_pages(pages: list[list[tuple]], phrase: str) -> dict | None:
     return None
 
 
+def _page_blocks(doc, limit: int = 60) -> list[dict]:
+    """按阅读顺序抽出文本块（页 → y → x）。"""
+    blocks: list[dict] = []
+    for index in range(min(doc.page_count, limit)):
+        raw = [b for b in doc[index].get_text("blocks") if len(b) > 6 and b[6] == 0]
+        raw.sort(key=lambda b: (round(b[1], 1), b[0]))
+        for b in raw:
+            text = " ".join(str(b[4]).split())
+            if len(text) < 2:
+                continue
+            blocks.append(
+                {
+                    "page": index + 1,
+                    "x": round(float(b[0]), 2),
+                    "y": round(float(b[1]), 2),
+                    "w": round(max(float(b[2]) - float(b[0]), 4), 2),
+                    "h": round(max(float(b[3]) - float(b[1]), 4), 2),
+                    "text": text,
+                }
+            )
+    return blocks
+
+
+def _plain(text: str) -> str:
+    """去掉占位符与 LaTeX 命令，只留可搜索的文字。"""
+    t = re.sub(r"\[\[[A-Z]+_\d+\]\]", " ", text)
+    t = re.sub(r"\\[a-zA-Z]+\*?", " ", t)
+    t = t.replace("{", " ").replace("}", " ").replace("$", " ").replace("~", " ")
+    return " ".join(t.split())
+
+
+def _match_block(blocks: list[dict], text: str, words: int = 6) -> int | None:
+    """按开头几个词找到块序号，返回在 blocks 里的下标。"""
+    tokens = re.findall(r"[A-Za-z]{2,}", _plain(text))[:words]
+    if len(tokens) < 3:
+        return None
+    key = " ".join(tokens).lower()
+    for index, block in enumerate(blocks):
+        if key in block["text"].lower():
+            return index
+    return None
+
+
+def _match_block_zh(blocks: list[dict], text: str) -> int | None:
+    snippet = re.sub(r"\s+", "", _plain(text))[:14]
+    if len(snippet) < 4:
+        return None
+    for index, block in enumerate(blocks):
+        if snippet in re.sub(r"\s+", "", block["text"]):
+            return index
+    return None
+
+
+def _rect_of(block: dict | None) -> dict | None:
+    if not block:
+        return None
+    return {k: block[k] for k in ("page", "x", "y", "w", "h")}
+
+
 def _build_alignment(task_dir: Path, chunks: list[dict]) -> dict[str, dict]:
-    """把每段在原文/译文 PDF 里的位置找出来，供阅读器做左右联动高亮。"""
+    """段落顺序映射：英文块按开头几个词定位，中文用同一块序号（译文排版同构）。"""
     en_pdf = task_dir / "en.pdf"
     zh_pdf = task_dir / "zh.pdf"
     if not en_pdf.exists() or not zh_pdf.exists():
@@ -332,35 +391,8 @@ def _build_alignment(task_dir: Path, chunks: list[dict]) -> dict[str, dict]:
         return {}
 
     try:
-        en_pages = [en_doc[i].get_text("words") for i in range(min(en_doc.page_count, 40))]
-
-        def find_en(text: str) -> dict | None:
-            for count in (8, 6, 4):
-                words = re.findall(r"[A-Za-z]{2,}", text)[:count]
-                if len(words) < 3:
-                    continue
-                hit = _find_in_pages(en_pages, " ".join(words))
-                if hit:
-                    return hit
-            return None
-
-        def find_zh(text: str) -> dict | None:
-            snippet = re.sub(r"\s+", "", text)[:12]
-            if len(snippet) < 4:
-                return None
-            for index in range(min(zh_doc.page_count, 40)):
-                rects = zh_doc[index].search_for(snippet)
-                if not rects:
-                    continue
-                rect = rects[0]
-                return {
-                    "page": index + 1,
-                    "x": round(rect.x0, 2),
-                    "y": round(rect.y0, 2),
-                    "w": round(max(rect.width, 4), 2),
-                    "h": round(max(rect.height, 4), 2),
-                }
-            return None
+        en_blocks = _page_blocks(en_doc)
+        zh_blocks = _page_blocks(zh_doc)
 
         out: dict[str, dict] = {}
         for chunk in chunks:
@@ -369,10 +401,20 @@ def _build_alignment(task_dir: Path, chunks: list[dict]) -> dict[str, dict]:
                 continue
             en_text = str(chunk.get("en") or "")
             zh_text = str(chunk.get("zh") or "")
-            en_hit = find_en(en_text) if en_text.strip() else None
-            zh_hit = find_zh(zh_text) if zh_text.strip() else None
-            if en_hit or zh_hit:
-                out[str(seq)] = {"en": en_hit, "zh": zh_hit}
+
+            en_index = _match_block(en_blocks, en_text) if en_text.strip() else None
+            zh_index = _match_block_zh(zh_blocks, zh_text) if zh_text.strip() else None
+
+            # 同一段落在两种 PDF 里的块序号一致（译文按原结构重排）
+            if en_index is not None and zh_index is None and en_index < len(zh_blocks):
+                zh_index = en_index
+            if zh_index is not None and en_index is None and zh_index < len(en_blocks):
+                en_index = zh_index
+
+            en_rect = _rect_of(en_blocks[en_index]) if en_index is not None and en_index < len(en_blocks) else None
+            zh_rect = _rect_of(zh_blocks[zh_index]) if zh_index is not None and zh_index < len(zh_blocks) else None
+            if en_rect or zh_rect:
+                out[str(seq)] = {"en": en_rect, "zh": zh_rect}
         return out
     finally:
         en_doc.close()

@@ -320,12 +320,16 @@
     invoke("save_library", { text: JSON.stringify(library) }).catch(() => {});
   }
 
-  function deleteDoc(doc: Doc) {
+  async function deleteDoc(doc: Doc) {
     deletedIds.add(doc.id);
     library = library.filter((d) => d.id !== doc.id);
-    persistLibrary();
-    savedTip = "已删除";
-    setTimeout(() => (savedTip = ""), 1200);
+    await persistLibrary();
+    const paths = [doc.pdf, doc.enPdf, doc.segments].filter(Boolean) as string[];
+    if (paths.length) {
+      invoke("delete_doc_files", { paths }).catch(() => {});
+    }
+    savedTip = "已删除（含文件）";
+    setTimeout(() => (savedTip = ""), 1500);
   }
 
   function upsertDoc(patch: Partial<Doc> & { arxivId: string }) {

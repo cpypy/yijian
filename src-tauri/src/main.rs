@@ -473,6 +473,38 @@ fn search_text(docs: Vec<(String, String)>, query: String) -> Result<Vec<TextHit
 }
 
 
+
+#[tauri::command]
+fn delete_doc_files(paths: Vec<String>) -> Result<(), String> {
+    for raw in paths {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let path = std::path::PathBuf::from(trimmed);
+        let parent = path.parent().map(|p| p.to_path_buf());
+        if path.is_file() {
+            let _ = std::fs::remove_file(&path);
+        }
+        if let Some(dir) = parent {
+            let name = dir
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let under_jobs = dir
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|n| n == "jobs")
+                .unwrap_or(false);
+            // 任务目录（t_xxx）或本次作业目录（jobs/<id>）整体删掉
+            if name.starts_with("t_") || under_jobs {
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn translate_texts(app: AppHandle, texts: Vec<String>) -> Result<String, String> {
     let exe = engine_path(&app);
@@ -583,7 +615,8 @@ fn main() {
             load_collections,
             save_collections,
             search_text,
-            translate_texts
+            translate_texts,
+            delete_doc_files
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");
