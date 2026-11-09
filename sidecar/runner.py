@@ -384,6 +384,7 @@ def run(arxiv_id: str, mode: str = "auto") -> int:
     import httpx
 
     emit(event="log", line="准备运行环境…")
+    emit(event="log", line=f"预算 max_tokens={MAX_TOKENS} batch_chars={BATCH_CHARS_CAP}")
     _prepare()
     _sync_glossary()
     started = time.time()
@@ -538,6 +539,9 @@ def run(arxiv_id: str, mode: str = "auto") -> int:
                 chunk, log_offset = _read_new(log_path, log_offset)
                 for line in chunk.splitlines():
                     low = line.lower()
+                    if "yijian_config" in low:
+                        emit(event="log", line=line.strip()[:200])
+                        continue
                     if "warning" in low or "error" in low or "失败" in line:
                         text_line = line.strip()[:300]
                         emit(event="log", line=text_line)
@@ -704,6 +708,19 @@ def main() -> int:
 
     if len(sys.argv) > 1 and sys.argv[1] == "--texlate-server":
         _patch_texlate()
+        # 自检：把真正生效的预算打出来，父进程会转发到界面日志
+        try:
+            from texlate.server.worker.translate.stage import PipelineConfig as _PC
+
+            _cfg = _PC()
+            print(
+                f"YIJIAN_CONFIG max_tokens={_cfg.max_tokens} "
+                f"batch_chars={_cfg.batch_max_chars} hard_limit={_cfg.hard_limit}",
+                flush=True,
+            )
+        except Exception as _exc:  # noqa: BLE001
+            print(f"YIJIAN_CONFIG failed: {type(_exc).__name__}: {_exc}", flush=True)
+
         from texlate.server.__main__ import main as server_main
 
         sys.argv = ["texlate.server", *sys.argv[2:]]
