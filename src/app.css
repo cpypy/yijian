@@ -639,3 +639,105 @@ button.mini {
   cursor: pointer;
 }
 button.mini:hover { background: #f4efe5; }
+
+/* ================= v2 布局：左侧导航 + 主区 ================= */
+html, body { height: 100%; }
+body { margin: 0; overflow: hidden; background: var(--bg); }
+
+.shell { display: flex; height: 100vh; }
+
+.rail {
+  width: 208px;
+  flex: none;
+  background: #23272a;
+  color: #c3bdb3;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 12px 12px;
+}
+.rail .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 18px; }
+.rail .logo {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center;
+  font: 600 14px/1 var(--serif);
+}
+.rail .bname { color: #fff; font-size: 15px; font-weight: 600; line-height: 1.1; }
+.rail .bname small { display: block; font-size: 10px; color: #8d877d; font-weight: 400; letter-spacing: .4px; }
+
+.rail .nav { display: flex; flex-direction: column; gap: 2px; }
+.rail .nav button {
+  all: unset;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px;
+  font-size: 13px; color: #c3bdb3; cursor: pointer;
+}
+.rail .nav button:hover { background: #2e3337; color: #fff; }
+.rail .nav button.on { background: #2e3337; color: #fff; }
+.rail .nav button.on::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.rail .nav em {
+  margin-left: auto; font-style: normal; font-size: 11px; color: #8d877d;
+}
+.rail .grown { flex: 1; }
+.rail .engine {
+  margin: 0 4px 10px; padding: 9px 10px; border-radius: 8px;
+  background: #2e3337; font-size: 11px; color: #9d978c; line-height: 1.5;
+}
+.rail .engine b { display: block; color: #d8d3c9; font-weight: 500; margin-bottom: 2px; }
+.rail .railset {
+  all: unset; text-align: center; padding: 8px; border-radius: 7px;
+  font-size: 12px; color: #b6b0a5; cursor: pointer;
+}
+.rail .railset:hover { background: #2e3337; color: #fff; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  height: 52px; flex: none;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.topbar h1 { font-size: 15px; font-weight: 600; margin: 0; }
+.topbar .sub { font-size: 12px; color: var(--muted); }
+.topbar .grow { flex: 1; }
+.topbar .saved { font-size: 12px; color: var(--accent); }
+.topbar .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.main > main {
+  flex: 1; min-height: 0; overflow: auto;
+  padding: 26px 30px 60px;
+  display: block;
+}
+.main > main.reader { padding: 0; display: flex; flex-direction: column; }
+.main > main.library { padding: 0; display: flex; flex-direction: row; }
+.main > main.feed { padding: 0; display: flex; flex-direction: column; }
+
+/* 工作台：输入卡片 */
+.main .row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 1px 2px rgba(35, 32, 28, .04);
+}
+.main .row > input {
+  flex: 1; min-width: 0;
+  border: none; outline: none; background: transparent;
+  font: 16px/1.5 var(--serif); color: var(--ink);
+}
+.main .row > input::placeholder { color: #b6b0a5; }
+.main .row .chk { font-size: 12px; color: var(--muted); }
+.main .row button.primary { border-radius: 9px; padding: 9px 18px; }
+
+.main .banner {
+  margin-top: 12px;
+  font-size: 12.5px;
+}
+
+/* 文库：行更像表格 */
+.librow { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; }
+.libtitle { font-family: var(--serif); }
+.libmeta { font-size: 11.5px; }

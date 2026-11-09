@@ -764,28 +764,63 @@
   }
 </script>
 
-<header>
-  <div class="brand"><span class="logo">译</span> 译见</div>
-  <nav class="nav">
-    <button class="nav-btn" class:on={nav === "work"} on:click={() => (nav = "work")}>工作台</button>
-    <button class="nav-btn" class:on={nav === "library"} on:click={() => (nav = "library")}>
-      文库 {#if library.length}<span class="badge">{library.length}</span>{/if}
-    </button>
-    <button
-      class="nav-btn"
-      class:on={nav === "discover"}
-      on:click={() => {
-        nav = "discover";
-        loadFeed();
-      }}
-    >
-      发现
-    </button>
-  </nav>
-  <span class="grow"></span>
-  {#if savedTip}<span class="saved">{savedTip}</span>{/if}
-  <button class="icon" title="模型与术语" on:click={() => (showSettings = true)}>⚙</button>
-</header>
+<div class="shell">
+  <aside class="rail">
+    <div class="brand">
+      <span class="logo">译</span>
+      <div class="bname">译见<small>Yijian</small></div>
+    </div>
+    <nav class="nav">
+      <button class:on={nav === "work"} on:click={() => (nav = "work")}>工作台</button>
+      <button class:on={nav === "library"} on:click={() => (nav = "library")}>
+        文库{#if library.length}<em>{library.length}</em>{/if}
+      </button>
+      <button
+        class:on={nav === "discover"}
+        on:click={() => {
+          nav = "discover";
+          loadFeed();
+        }}
+      >
+        发现
+      </button>
+    </nav>
+    <span class="grown"></span>
+    <div class="engine">
+      <b>{settings.model || "未配置模型"}</b>
+      {running ? "翻译中…" : "就绪"}
+    </div>
+    <button class="railset" on:click={() => (showSettings = true)}>⚙ 设置</button>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h1>
+        {nav === "library"
+          ? "文库"
+          : nav === "discover"
+            ? "发现"
+            : view === "read"
+              ? "阅读器"
+              : "工作台"}
+      </h1>
+      <span class="sub">
+        {#if nav === "library"}
+          {library.length} 篇 · {collections.length} 个集合
+        {:else if nav === "discover"}
+          alphaXiv 热榜 · 近 7 天
+        {:else if view === "read"}
+          {arxivId}
+        {:else}
+          输入 arXiv ID，生成中英对照
+        {/if}
+      </span>
+      <span class="grow"></span>
+      {#if savedTip}<span class="saved">{savedTip}</span>{/if}
+      {#if lastTokens}
+        <span class="cost">{lastTokens.toLocaleString()} tokens</span>
+      {/if}
+    </div>
 
 {#if nav === "library"}
   <main class="library">
@@ -1099,6 +1134,8 @@
     {/if}
   </div>
 {/if}
+  </div>
+</div>
 
 {#if conflict}
   <div class="overlay" role="presentation">
