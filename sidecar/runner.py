@@ -1,4 +1,4 @@
-﻿"""译见引擎 sidecar。
+"""译见引擎 sidecar。
 
 被 Tauri 壳以子进程方式拉起，参数 `--run <arxiv_id>`，
 在 stdout 上逐行输出 JSON 事件，由 Rust 侧转发给前端。
@@ -860,6 +860,23 @@ def discover() -> int:
     return 0
 
 
+def rebuild_alignment(segments_path: str, pdf_path: str) -> int:
+    """给旧论文补算段落对齐（不用重新翻译）。"""
+    segments = Path(segments_path)
+    pdf = Path(pdf_path)
+    try:
+        data = json.loads(segments.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        return 1
+    chunks = data.get("chunks", [])
+    align = _build_alignment(pdf.parent, chunks)
+    data["align"] = align
+    segments.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps({"ok": True, "count": len(align)}, ensure_ascii=False))
+    return 0
+
+
 def translate_texts(path: str) -> int:
     """给发现页用：把一批英文标题/摘要翻成中文。"""
     import asyncio
@@ -925,6 +942,10 @@ def main() -> int:
     if len(sys.argv) > 2 and sys.argv[1] == "--translate":
         _patch_texlate()
         return translate_texts(sys.argv[2])
+
+    if len(sys.argv) > 3 and sys.argv[1] == "--align":
+        _patch_texlate()
+        return rebuild_alignment(sys.argv[2], sys.argv[3])
 
     if len(sys.argv) > 1 and sys.argv[1] == "--texlate":
         _patch_texlate()

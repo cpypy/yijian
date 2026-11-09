@@ -44,7 +44,28 @@
   let hoverSeq = -1;
   let enViewer: PdfViewer | undefined;
   let zhViewer: PdfViewer | undefined;
-  let feedZh: Record<string, { title: string; abstract: string; loading?: boolean }> = {};
+  function loadFeedCache(): Record<string, { title: string; abstract: string }> {
+    try {
+      return JSON.parse(localStorage.getItem("yijian.feedZh") || "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  let feedZh: Record<string, { title: string; abstract: string; loading?: boolean }> =
+    loadFeedCache();
+
+  function saveFeedCache() {
+    const plain: Record<string, { title: string; abstract: string }> = {};
+    for (const [key, value] of Object.entries(feedZh)) {
+      plain[key] = { title: value.title, abstract: value.abstract };
+    }
+    try {
+      localStorage.setItem("yijian.feedZh", JSON.stringify(plain));
+    } catch {
+      /* 配额满了就算了 */
+    }
+  }
 
   function marksFor(a: typeof align, side: "en" | "zh") {
     const out: { seq: number; page: number; x: number; y: number; w: number; h: number }[] = [];
@@ -62,6 +83,30 @@
     hoverSeq = seq;
     if (side === "en") zhViewer?.scrollToSeq(seq);
     else enViewer?.scrollToSeq(seq);
+  }
+
+  async function rebuildAlign() {
+    if (!currentSegmentsPath || !pdf) {
+      savedTip = "没有可对齐的数据";
+      setTimeout(() => (savedTip = ""), 1500);
+      return;
+    }
+    savedTip = "正在对齐…";
+    try {
+      const raw = await invoke<string>("rebuild_alignment", {
+        segments: currentSegmentsPath,
+        pdf,
+      });
+      const data = JSON.parse(raw || "{}");
+      if (!data.ok) throw new Error(data.error || "对齐失败");
+      const segRaw = await invoke<string>("read_segments", { path: currentSegmentsPath });
+      const parsed = JSON.parse(segRaw);
+      align = parsed.align ?? {};
+      savedTip = `对齐完成：${data.count} 段`;
+    } catch (e) {
+      savedTip = `对齐失败：${String(e).slice(0, 60)}`;
+    }
+    setTimeout(() => (savedTip = ""), 2500);
   }
 
   function changeZoom(delta: number) {
@@ -450,6 +495,7 @@
     readerQuery = "";
     pdf = d.pdf || "";
     enPdf = d.enPdf || "";
+    currentSegmentsPath = d.segments || "";
     if (d.segments) {
       try {
         const raw = await invoke<string>("read_segments", { path: d.segments });
@@ -839,6 +885,8 @@
   }
 
   async function translateItem(it: FeedItem) {
+    const cached = feedZh[it.id];
+    if (cached?.title && !cached.loading) return;
     if (!configured) {
       savedTip = "请先在设置里填 API Key";
       setTimeout(() => (savedTip = ""), 2000);
@@ -857,6 +905,7 @@
         ...feedZh,
         [it.id]: { title: list[0] ?? "", abstract: list[1] ?? "", loading: false },
       };
+      saveFeedCache();
     } catch (e) {
       feedZh = { ...feedZh, [it.id]: { title: "", abstract: String(e), loading: false } };
     }
@@ -1152,6 +1201,29 @@
     </div>
 
     <pre class="log" id="logbox">{logs.join("\n") || "等待任务…"}</pre>
+
+    <div class="section-title">
+      <h2>最近</h2>
+      <span>点击继续阅读</span>
+    </div>
+    <div class="queue">
+      {#if !library.length}
+        <div class="qempty">还没有论文，跑一篇就会出现在这里</div>
+      {/if}
+      {#each library.slice(0, 6) as d (d.id)}
+        <div class="qrow">
+          <span class="idx">·</span>
+          <div>
+            <div class="t">{d.title || d.arxivId}</div>
+            <div class="st">
+              读了 {Math.round(d.progress || 0)}% · {new Date(d.addedAt).toLocaleDateString()}
+            </div>
+          </div>
+          <span class="st">{d.arxivId}</span>
+          <button class="mini" on:click={() => openDoc(d)}>打开</button>
+        </div>
+      {/each}
+    </div>
   </main>
 {:else}
   <main class="reader">
@@ -1168,6 +1240,9 @@
       <span class="rid">{arxivId}</span>
       <span class="rmeta">{mode === "both" ? "中英对照" : mode === "en" ? "原文" : "译文"}</span>
       <span class="grow"></span>
+      {#if !Object.keys(align).length}
+        <button class="ghost" title="为旧论文补算段落对齐" on:click={rebuildAlign}>重建对齐</button>
+      {/if}
       <button class="ghost" title="缩小" on:click={() => changeZoom(-0.1)}>－</button>
       <span class="rmeta">{Math.round(zoom * 100)}%</span>
       <button class="ghost" title="放大" on:click={() => changeZoom(0.1)}>＋</button>

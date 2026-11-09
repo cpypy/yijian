@@ -63,14 +63,8 @@
       total = doc.numPages;
       loading = false;
       await nextFrame();
-      renderNext(3);
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((e) => e.isIntersecting)) renderNext(3);
-        },
-        { root: host, rootMargin: "900px" }
-      );
-      observer.observe(host);
+      await renderNext(3);
+      armScroll();
     } catch (e) {
       loading = false;
       error = String(e);
@@ -79,20 +73,25 @@
 
   async function reload() {
     if (!doc) return;
-    observer?.disconnect();
-    observer = null;
     host.innerHTML = "";
     pageBoxes.length = 0;
     rendered = 0;
     await nextFrame();
-    renderNext(3);
-    observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) renderNext(3);
-      },
-      { root: host, rootMargin: "900px" }
-    );
-    observer.observe(host);
+    await renderNext(3);
+    armScroll();
+  }
+
+  /** 滚到底部附近就继续渲染下一页批次 */
+  function armScroll() {
+    host.onscroll = () => {
+      if (destroyed || rendered >= total) return;
+      const nearBottom = host.scrollTop + host.clientHeight >= host.scrollHeight - 900;
+      if (nearBottom) void renderNext(3);
+    };
+    // 内容不足一屏时直接把后续批次补齐
+    if (host.scrollHeight <= host.clientHeight + 200 && rendered < total) {
+      void renderNext(3);
+    }
   }
 
   function nextFrame() {

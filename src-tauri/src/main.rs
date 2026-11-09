@@ -474,6 +474,36 @@ fn search_text(docs: Vec<(String, String)>, query: String) -> Result<Vec<TextHit
 
 
 
+
+#[tauri::command]
+fn rebuild_alignment(app: AppHandle, segments: String, pdf: String) -> Result<String, String> {
+    let exe = engine_path(&app);
+    if !exe.exists() {
+        return Err(format!("引擎不存在：{}", exe.display()));
+    }
+    let mut command = Command::new(&exe);
+    command
+        .arg("--align")
+        .arg(&segments)
+        .arg(&pdf)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1");
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = command.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 #[tauri::command]
 fn delete_doc_files(paths: Vec<String>) -> Result<(), String> {
     for raw in paths {
@@ -616,7 +646,8 @@ fn main() {
             save_collections,
             search_text,
             translate_texts,
-            delete_doc_files
+            delete_doc_files,
+            rebuild_alignment
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");
