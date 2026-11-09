@@ -1,12 +1,18 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { createEventDispatcher } from "svelte";
   import * as pdfjsLib from "pdfjs-dist";
   import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
   export let src: string;
+  export let zoom = 1;
+  export let marks: { seq: number; page: number; x: number; y: number; w: number; h: number }[] = [];
+  export let activeSeq = -1;
+
+  const dispatch = createEventDispatcher<{ hover: number; leave: void }>();
 
   let host: HTMLDivElement;
   let loading = true;
@@ -15,39 +21,81 @@
   let rendered = 0;
   let total = 0;
   let destroyed = false;
-
-  onMount(async () => {
-    try {
-      const url = convertFileSrc(src);
-      doc = await pdfjsLib.getDocument({ url, disableAutoFetch: true }).promise;
-      total = doc.numPages;
-      rendered = 0;
-      loading = false;
-      await tick();
-      renderNext(4);
-      const io = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((e) => e.isIntersecting)) renderNext(4);
-        },
-        { rootMargin: "800px" }
-      );
-      io.observe(host);
-      observer = io;
-    } catch (e) {
-      loading = false;
-      error = String(e);
-    }
-  });
-
   let observer: IntersectionObserver | null = null;
+  const pageBoxes: HTMLDivElement[] = [];
+
+  // 渲染倍率：超过 1 的 dpr 之外再乘 1.6，避免高分屏发虚
+  const SUPERSAMPLE = 1.6;
+
+  onMount(() => {
+    load();
+  });
 
   onDestroy(() => {
     destroyed = true;
     observer?.disconnect();
-    doc?.destroy?.();
   });
 
-  function tick() {
+  let currentZoom = zoom;
+  $: if (doc && zoom !== currentZoom) {
+    currentZoom = zoom;
+    reload();
+  }
+
+  let currentMarks = marks;
+  $: if (marks !== currentMarks) {
+    currentMarks = marks;
+    // 只更新高亮层，不重渲染
+    requestAnimationFrame(updateMarks);
+  }
+
+  let currentActive = activeSeq;
+  $: if (activeSeq !== currentActive) {
+    currentActive = activeSeq;
+    updateMarks();
+  }
+
+  async function load() {
+    destroyed = false;
+    try {
+      const url = convertFileSrc(src);
+      doc = await pdfjsLib.getDocument({ url, disableAutoFetch: true }).promise;
+      total = doc.numPages;
+      loading = false;
+      await nextFrame();
+      renderNext(3);
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) renderNext(3);
+        },
+        { root: host, rootMargin: "900px" }
+      );
+      observer.observe(host);
+    } catch (e) {
+      loading = false;
+      error = String(e);
+    }
+  }
+
+  async function reload() {
+    if (!doc) return;
+    observer?.disconnect();
+    observer = null;
+    host.innerHTML = "";
+    pageBoxes.length = 0;
+    rendered = 0;
+    await nextFrame();
+    renderNext(3);
+    observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) renderNext(3);
+      },
+      { root: host, rootMargin: "900px" }
+    );
+    observer.observe(host);
+  }
+
+  function nextFrame() {
     return new Promise((r) => requestAnimationFrame(() => r(null)));
   }
 
@@ -56,17 +104,78 @@
     const end = Math.min(total, rendered + count);
     for (let n = rendered + 1; n <= end; n++) {
       const page = await doc.getPage(n);
-      const viewport = page.getViewport({ scale: 1.15 * window.devicePixelRatio });
+      const dpr = Math.max(window.devicePixelRatio || 1, 1);
+      const scale = zoom * dpr * SUPERSAMPLE;
+      const viewport = page.getViewport({ scale });
+      const cssWidth = viewport.width / (dpr * SUPERSAMPLE);
+      const cssHeight = viewport.height / (dpr * SUPERSAMPLE);
+
+      const box = document.createElement("div");
+      box.className = "pagebox";
+      box.dataset.page = String(n);
+      box.style.width = `${cssWidth}px`;
+      box.style.height = `${cssHeight}px`;
+
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width;
       canvas.height = viewport.height;
-      canvas.style.width = `${viewport.width / window.devicePixelRatio}px`;
-      canvas.style.height = `${viewport.height / window.devicePixelRatio}px`;
-      canvas.className = "pdfpage";
-      host.appendChild(canvas);
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
+      box.appendChild(canvas);
+
+      const layer = document.createElement("div");
+      layer.className = "marklayer";
+      box.appendChild(layer);
+
+      host.appendChild(box);
+      pageBoxes[n] = box;
       await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
+      drawMarksForPage(n);
     }
     rendered = end;
+  }
+
+  function marksFor(page: number) {
+    return currentMarks.filter((m) => m.page === page);
+  }
+
+  function drawMarksForPage(page: number) {
+    const box = pageBoxes[page];
+    if (!box) return;
+    const layer = box.querySelector(".marklayer") as HTMLDivElement;
+    layer.innerHTML = "";
+    const cssWidth = parseFloat(box.style.width);
+    // PDF 坐标是点（pt），渲染时按 zoom 放大；这里用相对比例定位
+    const pageWidthPt = cssWidth / zoom;
+    for (const m of marksFor(page)) {
+      const el = document.createElement("div");
+      el.className = "mark";
+      el.dataset.seq = String(m.seq);
+      el.style.left = `${(m.x / pageWidthPt) * 100}%`;
+      el.style.top = `${(m.y / pageWidthPt) * 100}%`;
+      el.style.width = `${(m.w / pageWidthPt) * 100}%`;
+      el.style.height = `${(m.h / pageWidthPt) * 100}%`;
+      el.addEventListener("mouseenter", () => dispatch("hover", m.seq));
+      el.addEventListener("mouseleave", () => dispatch("leave"));
+      layer.appendChild(el);
+    }
+    applyActive();
+  }
+
+  function updateMarks() {
+    for (let p = 1; p <= total; p++) drawMarksForPage(p);
+  }
+
+  function applyActive() {
+    if (!host) return;
+    host.querySelectorAll<HTMLElement>(".mark").forEach((el) => {
+      el.classList.toggle("active", Number(el.dataset.seq) === currentActive);
+    });
+  }
+
+  export function scrollToSeq(seq: number) {
+    const el = host?.querySelector<HTMLElement>(`.mark[data-seq="${seq}"]`);
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 </script>
 
@@ -94,9 +203,31 @@
     font-size: 13px;
     color: #7d776d;
   }
-  :global(canvas.pdfpage) {
+  :global(.pagebox) {
+    position: relative;
     background: #fff;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
     border-radius: 2px;
+  }
+  :global(.pagebox canvas) {
+    display: block;
+    border-radius: 2px;
+  }
+  :global(.marklayer) {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  :global(.mark) {
+    position: absolute;
+    background: rgba(47, 111, 94, 0.12);
+    border-radius: 2px;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  :global(.mark:hover),
+  :global(.mark.active) {
+    background: rgba(47, 111, 94, 0.38);
   }
 </style>

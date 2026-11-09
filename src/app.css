@@ -754,3 +754,17 @@ body { margin: 0; overflow: hidden; background: var(--bg); }
   background: #f2eee6; border-bottom: 1px solid var(--line);
 }
 .pdfstate { margin: 40px auto; font-size: 13px; color: var(--muted); }
+
+/* ---------- 删除按钮 / 发现译文 ---------- */
+button.mini.danger { color: #a33; border-color: #ecd6d0; }
+button.mini.danger:hover { background: #f8e9e5; }
+
+.zhblock {
+  margin: 6px 0 10px;
+  padding: 9px 12px;
+  background: #f4f8f5;
+  border-left: 2px solid var(--accent);
+  border-radius: 6px;
+}
+.zhtitle { font-size: 13px; font-weight: 600; color: #1f4a41; margin-bottom: 4px; }
+.zhabstract { font-size: 12px; line-height: 1.7; color: #3f4a45; }

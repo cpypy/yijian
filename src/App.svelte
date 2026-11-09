@@ -39,6 +39,40 @@
   let logs: string[] = [];
   let pdf = "";
   let enPdf = "";
+  let align: Record<string, { en?: any; zh?: any }> = {};
+  let zoom = 1;
+  let hoverSeq = -1;
+  let enViewer: PdfViewer | undefined;
+  let zhViewer: PdfViewer | undefined;
+  let feedZh: Record<string, { title: string; abstract: string; loading?: boolean }> = {};
+
+  function marksFor(a: typeof align, side: "en" | "zh") {
+    const out: { seq: number; page: number; x: number; y: number; w: number; h: number }[] = [];
+    for (const [seq, pair] of Object.entries(a ?? {})) {
+      const hit = (pair as any)?.[side];
+      if (hit) out.push({ seq: Number(seq), ...hit });
+    }
+    return out;
+  }
+
+  $: enMarks = marksFor(align, "en");
+  $: zhMarks = marksFor(align, "zh");
+
+  function onHover(seq: number, side: "en" | "zh") {
+    hoverSeq = seq;
+    if (side === "en") zhViewer?.scrollToSeq(seq);
+    else enViewer?.scrollToSeq(seq);
+  }
+
+  function changeZoom(delta: number) {
+    zoom = Math.min(3, Math.max(0.5, Math.round((zoom + delta) * 10) / 10));
+  }
+
+  function onWheelZoom(e: WheelEvent) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    changeZoom(e.deltaY > 0 ? -0.1 : 0.1);
+  }
   let startedAt = 0;
   let elapsed = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -265,8 +299,33 @@
     if (el) el.scrollTop = el.scrollHeight;
   }
 
-  function persistLibrary() {
+  let deletedIds = new Set<string>();
+
+  async function persistLibrary() {
+    // 与磁盘上的副本合并：避免启动时 load 未完成就把已有条目覆盖掉
+    try {
+      const raw = await invoke<string>("load_library");
+      const disk = JSON.parse(raw || "[]");
+      if (Array.isArray(disk)) {
+        const map = new Map<string, Doc>();
+        for (const d of disk as Doc[]) {
+          if (!deletedIds.has(d.id)) map.set(d.id, d);
+        }
+        for (const d of library) map.set(d.id, d);
+        library = [...map.values()].sort((a, b) => b.addedAt - a.addedAt);
+      }
+    } catch {
+      /* 读不到就按内存为准 */
+    }
     invoke("save_library", { text: JSON.stringify(library) }).catch(() => {});
+  }
+
+  function deleteDoc(doc: Doc) {
+    deletedIds.add(doc.id);
+    library = library.filter((d) => d.id !== doc.id);
+    persistLibrary();
+    savedTip = "已删除";
+    setTimeout(() => (savedTip = ""), 1200);
   }
 
   function upsertDoc(patch: Partial<Doc> & { arxivId: string }) {
@@ -284,6 +343,7 @@
           progress: 0,
           lastSeq: 0,
           collection: "",
+          collectionId: "",
           ...patch,
         },
         ...library,
@@ -374,6 +434,7 @@
       zh: c.zh || "",
       ph: c.ph ?? {},
     }));
+    align = data.align ?? {};
     view = "read";
     await loadNotes();
   }
@@ -385,7 +446,15 @@
     readerQuery = "";
     pdf = d.pdf || "";
     enPdf = d.enPdf || "";
-    if (pdf) {
+    if (d.segments) {
+      try {
+        const raw = await invoke<string>("read_segments", { path: d.segments });
+        await applySegments(raw);
+      } catch {
+        /* PDF 仍可打开 */
+      }
+    }
+    if (pdf || enPdf) {
       view = "read";
       return;
     }
@@ -394,17 +463,8 @@
       view = "work";
       return;
     }
-    try {
-      const raw = await invoke<string>("read_segments", { path: d.segments });
-      await applySegments(raw);
-      await tick();
-      const target = docEl?.querySelector<HTMLElement>(`[data-seq="${d.lastSeq}"]`);
-      if (target) target.scrollIntoView({ block: "center" });
-    } catch (e) {
-      logs = [`无法打开：${String(e)}`];
-      nav = "work";
-      view = "work";
-    }
+    nav = "work";
+    view = "work";
   }
 
   function onDocClick(e: MouseEvent) {
@@ -773,6 +833,30 @@
     savedTip = "已收藏";
     setTimeout(() => (savedTip = ""), 1500);
   }
+
+  async function translateItem(it: FeedItem) {
+    if (!configured) {
+      savedTip = "请先在设置里填 API Key";
+      setTimeout(() => (savedTip = ""), 2000);
+      showSettings = true;
+      return;
+    }
+    feedZh = { ...feedZh, [it.id]: { title: "", abstract: "", loading: true } };
+    try {
+      const raw = await invoke<string>("translate_texts", {
+        texts: [it.title, it.abstract],
+      });
+      const data = JSON.parse(raw || "{}");
+      if (data.error) throw new Error(data.error);
+      const list = data.texts ?? [];
+      feedZh = {
+        ...feedZh,
+        [it.id]: { title: list[0] ?? "", abstract: list[1] ?? "", loading: false },
+      };
+    } catch (e) {
+      feedZh = { ...feedZh, [it.id]: { title: "", abstract: String(e), loading: false } };
+    }
+  }
 </script>
 
 <div class="shell">
@@ -948,6 +1032,7 @@
               value={(d.tags ?? []).join(", ")}
               on:change={(e) => setTags(d, (e.target as HTMLInputElement).value)}
             />
+            <button class="mini danger" title="从文库删除" on:click={() => deleteDoc(d)}>删除</button>
           </div>
         {/each}
       </div>
@@ -978,9 +1063,22 @@
           <h3>{it.title}</h3>
           <div class="auth">{it.authors}</div>
           <p>{it.abstract}</p>
+          {#if feedZh[it.id]}
+            <div class="zhblock">
+              <div class="zhtitle">{feedZh[it.id].title}</div>
+              <div class="zhabstract">{feedZh[it.id].abstract}</div>
+            </div>
+          {/if}
           <div class="cardactions">
             <button class="primary sm" on:click={() => useItem(it)}>译入</button>
             <button class="ghost sm" on:click={() => saveItem(it)}>收藏</button>
+            <button
+              class="ghost sm"
+              disabled={feedZh[it.id]?.loading}
+              on:click={() => translateItem(it)}
+            >
+              {feedZh[it.id]?.loading ? "翻译中…" : "译成中文"}
+            </button>
           </div>
         </article>
       {/each}
@@ -1066,6 +1164,9 @@
       <span class="rid">{arxivId}</span>
       <span class="rmeta">{mode === "both" ? "中英对照" : mode === "en" ? "原文" : "译文"}</span>
       <span class="grow"></span>
+      <button class="ghost" title="缩小" on:click={() => changeZoom(-0.1)}>－</button>
+      <span class="rmeta">{Math.round(zoom * 100)}%</span>
+      <button class="ghost" title="放大" on:click={() => changeZoom(0.1)}>＋</button>
       <button class="seg-btn" class:on={mode === "en"} on:click={() => (mode = "en")}>原文</button>
       <button class="seg-btn" class:on={mode === "both"} on:click={() => (mode = "both")}>
         对照
@@ -1076,12 +1177,19 @@
       {/if}
     </div>
 
-    <div class="pdfarea" class:dual={mode === "both"}>
+    <div class="pdfarea" class:dual={mode === "both"} on:wheel|nonpassive={onWheelZoom}>
       {#if mode === "both"}
         {#if enPdf}
           <div class="pane">
             <div class="panehead">原文</div>
-            <PdfViewer src={enPdf} />
+            <PdfViewer
+              bind:this={enViewer}
+              src={enPdf}
+              {zoom}
+              marks={enMarks}
+              activeSeq={hoverSeq}
+              on:hover={(e) => onHover(e.detail, "en")}
+            />
           </div>
         {:else}
           <div class="pane"><div class="pdfstate">没有原文 PDF</div></div>
@@ -1089,19 +1197,26 @@
         {#if pdf}
           <div class="pane">
             <div class="panehead">译文</div>
-            <PdfViewer src={pdf} />
+            <PdfViewer
+              bind:this={zhViewer}
+              src={pdf}
+              {zoom}
+              marks={zhMarks}
+              activeSeq={hoverSeq}
+              on:hover={(e) => onHover(e.detail, "zh")}
+            />
           </div>
         {:else}
           <div class="pane"><div class="pdfstate">没有译文 PDF</div></div>
         {/if}
       {:else if mode === "en"}
         {#if enPdf}
-          <PdfViewer src={enPdf} />
+          <PdfViewer src={enPdf} {zoom} marks={enMarks} activeSeq={hoverSeq} />
         {:else}
           <div class="pdfstate">没有原文 PDF</div>
         {/if}
       {:else if pdf}
-        <PdfViewer src={pdf} />
+        <PdfViewer src={pdf} {zoom} marks={zhMarks} activeSeq={hoverSeq} />
       {:else}
         <div class="pdfstate">没有译文 PDF</div>
       {/if}

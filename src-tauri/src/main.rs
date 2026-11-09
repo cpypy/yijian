@@ -472,6 +472,55 @@ fn search_text(docs: Vec<(String, String)>, query: String) -> Result<Vec<TextHit
     Ok(hits)
 }
 
+
+#[tauri::command]
+fn translate_texts(app: AppHandle, texts: Vec<String>) -> Result<String, String> {
+    let exe = engine_path(&app);
+    if !exe.exists() {
+        return Err(format!("引擎不存在：{}", exe.display()));
+    }
+    std::fs::create_dir_all(app_dir()).map_err(|e| e.to_string())?;
+    let req = app_dir().join("translate-req.json");
+    let payload = serde_json::json!({ "texts": texts });
+    std::fs::write(&req, payload.to_string()).map_err(|e| e.to_string())?;
+
+    let mut command = Command::new(&exe);
+    command
+        .arg("--translate")
+        .arg(&req)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1");
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    if let Ok(settings) = load_settings() {
+        for (key, env_key) in [
+            ("base_url", "TEXLATE_BASE_URL"),
+            ("api_key", "TEXLATE_API_KEY"),
+            ("model", "TEXLATE_MODEL"),
+        ] {
+            if let Some(value) = settings.get(key).and_then(|v| v.as_str()) {
+                let value = value.trim();
+                if !value.is_empty() {
+                    command.env(env_key, value);
+                }
+            }
+        }
+    }
+
+    let output = command.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 #[tauri::command]
 fn read_segments(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
@@ -533,7 +582,8 @@ fn main() {
             queue_move,
             load_collections,
             save_collections,
-            search_text
+            search_text,
+            translate_texts
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");

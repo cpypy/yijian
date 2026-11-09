@@ -270,6 +270,115 @@ def _fetch_meta(arxiv_id: str) -> dict[str, str]:
         return {}
 
 
+def _load_pdf_words(pdf: Path, limit: int = 40) -> list[list[tuple]]:
+    import pymupdf
+
+    pages: list[list[tuple]] = []
+    with pymupdf.open(pdf) as doc:
+        for index in range(min(doc.page_count, limit)):
+            pages.append(doc[index].get_text("words"))
+    return pages
+
+
+def _find_in_pages(pages: list[list[tuple]], phrase: str) -> dict | None:
+    """在词表里按「连续若干词」匹配，跨行也能命中。"""
+    words = re.findall(r"[0-9A-Za-z\u4e00-\u9fff]+", phrase)[:8]
+    if len(words) < 3:
+        return None
+    key = [w.lower() for w in words]
+
+    for page_index, page_words in enumerate(pages):
+        norm = [str(w[4]).lower().strip(".,;:()[]{}") for w in page_words]
+        for start in range(len(norm)):
+            if norm[start] != key[0]:
+                continue
+            j = start
+            k = 0
+            while j < len(norm) and k < len(key) and norm[j] == key[k]:
+                j += 1
+                k += 1
+            if k != len(key):
+                continue
+            matched = page_words[start:j]
+            x0 = min(float(w[0]) for w in matched)
+            y0 = min(float(w[1]) for w in matched)
+            x1 = max(float(w[2]) for w in matched)
+            y1 = max(float(w[3]) for w in matched)
+            return {
+                "page": page_index + 1,
+                "x": round(x0, 2),
+                "y": round(y0, 2),
+                "w": round(max(x1 - x0, 4), 2),
+                "h": round(max(y1 - y0, 4), 2),
+            }
+    return None
+
+
+def _build_alignment(task_dir: Path, chunks: list[dict]) -> dict[str, dict]:
+    """把每段在原文/译文 PDF 里的位置找出来，供阅读器做左右联动高亮。"""
+    en_pdf = task_dir / "en.pdf"
+    zh_pdf = task_dir / "zh.pdf"
+    if not en_pdf.exists() or not zh_pdf.exists():
+        return {}
+    try:
+        import pymupdf
+    except Exception:  # noqa: BLE001
+        return {}
+
+    try:
+        en_doc = pymupdf.open(en_pdf)
+        zh_doc = pymupdf.open(zh_pdf)
+    except Exception:  # noqa: BLE001
+        return {}
+
+    try:
+        en_pages = [en_doc[i].get_text("words") for i in range(min(en_doc.page_count, 40))]
+
+        def find_en(text: str) -> dict | None:
+            for count in (8, 6, 4):
+                words = re.findall(r"[A-Za-z]{2,}", text)[:count]
+                if len(words) < 3:
+                    continue
+                hit = _find_in_pages(en_pages, " ".join(words))
+                if hit:
+                    return hit
+            return None
+
+        def find_zh(text: str) -> dict | None:
+            snippet = re.sub(r"\s+", "", text)[:12]
+            if len(snippet) < 4:
+                return None
+            for index in range(min(zh_doc.page_count, 40)):
+                rects = zh_doc[index].search_for(snippet)
+                if not rects:
+                    continue
+                rect = rects[0]
+                return {
+                    "page": index + 1,
+                    "x": round(rect.x0, 2),
+                    "y": round(rect.y0, 2),
+                    "w": round(max(rect.width, 4), 2),
+                    "h": round(max(rect.height, 4), 2),
+                }
+            return None
+
+        out: dict[str, dict] = {}
+        for chunk in chunks:
+            seq = chunk.get("seq")
+            if seq is None:
+                continue
+            en_text = str(chunk.get("en") or "")
+            zh_text = str(chunk.get("zh") or "")
+            en_hit = find_en(en_text) if en_text.strip() else None
+            zh_hit = find_zh(zh_text) if zh_text.strip() else None
+            if en_hit or zh_hit:
+                out[str(seq)] = {"en": en_hit, "zh": zh_hit}
+        return out
+    finally:
+        en_doc.close()
+        zh_doc.close()
+
+
 def _clean_tex(text: str) -> str:
     """粗暴清洗 bibitem 文本：去掉常见命令，保留可读内容。"""
     text = re.sub(r"\\emph\{([^}]*)\}", r"\1", text)
@@ -622,6 +731,7 @@ def run(arxiv_id: str, mode: str = "auto") -> int:
                         "total": len(chunks),
                         "refs": _parse_bbl(TEXLATE_DATA / "tasks" / task_id),
                         "meta": _fetch_meta(arxiv_id),
+                        "align": _build_alignment(TEXLATE_DATA / "tasks" / task_id, chunks),
                     },
                     ensure_ascii=False,
                 ),
@@ -708,6 +818,56 @@ def discover() -> int:
     return 0
 
 
+def translate_texts(path: str) -> int:
+    """给发现页用：把一批英文标题/摘要翻成中文。"""
+    import asyncio
+
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        texts = [str(t) for t in payload.get("texts", [])][:20]
+    except Exception as exc:  # noqa: BLE001
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+        return 1
+
+    base = os.environ.get("TEXLATE_BASE_URL") or "https://api.deepseek.com"
+    key = os.environ.get("TEXLATE_API_KEY") or ""
+    model = os.environ.get("TEXLATE_MODEL") or "deepseek-flash"
+    if not key:
+        print(json.dumps({"error": "未配置 API Key"}, ensure_ascii=False))
+        return 1
+
+    from texlate.xlat._dialects import ChatOptions
+    from texlate.xlat.client import ChatClient
+
+    async def run_all() -> list[str]:
+        client = ChatClient(base_url=base, api_key=key)
+        results: list[str] = []
+        try:
+            for text in texts:
+                resp = await client.chat(
+                    model,
+                    [
+                        {
+                            "role": "user",
+                            "content": "把下面的英文翻译成简洁的中文，只输出译文，不要解释：\n" + text,
+                        }
+                    ],
+                    options=ChatOptions(temperature=0.2, max_tokens=4000),
+                )
+                results.append((resp.content or "").strip())
+        finally:
+            await client.aclose()
+        return results
+
+    try:
+        translated = asyncio.run(run_all())
+        print(json.dumps({"texts": translated}, ensure_ascii=False))
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False))
+        return 1
+
+
 def main() -> int:
     # Windows 上 stdout 默认是 GBK，热榜里的 ö 会直接抛 UnicodeEncodeError
     for stream in (sys.stdout, sys.stderr):
@@ -719,6 +879,10 @@ def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "--discover":
         _patch_texlate()
         return discover()
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--translate":
+        _patch_texlate()
+        return translate_texts(sys.argv[2])
 
     if len(sys.argv) > 1 and sys.argv[1] == "--texlate":
         _patch_texlate()
