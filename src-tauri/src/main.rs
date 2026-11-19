@@ -475,6 +475,103 @@ fn search_text(docs: Vec<(String, String)>, query: String) -> Result<Vec<TextHit
 
 
 
+
+#[tauri::command]
+fn start_pdf(app: AppHandle, name: String, data: String) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let bytes = STANDARD.decode(data.as_bytes()).map_err(|e| e.to_string())?;
+    let safe: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let dir = app_dir().join("uploads").join(if safe.is_empty() {
+        "upload".to_string()
+    } else {
+        safe
+    });
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let input = dir.join("input.pdf");
+    std::fs::write(&input, &bytes).map_err(|e| e.to_string())?;
+    let out_dir = dir.join("out");
+
+    let exe = engine_path(&app);
+    if !exe.exists() {
+        return Err(format!("引擎不存在：{}", exe.display()));
+    }
+
+    let mut command = Command::new(&exe);
+    command
+        .arg("--pdf")
+        .arg(&input)
+        .arg(&out_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1");
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    if let Ok(settings) = load_settings() {
+        for (key, env_key) in [
+            ("base_url", "TEXLATE_BASE_URL"),
+            ("api_key", "TEXLATE_API_KEY"),
+            ("model", "TEXLATE_MODEL"),
+        ] {
+            if let Some(value) = settings.get(key).and_then(|v| v.as_str()) {
+                let value = value.trim();
+                if !value.is_empty() {
+                    command.env(env_key, value);
+                }
+            }
+        }
+    }
+
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    if let Some(state) = app.try_state::<RunState>() {
+        if let Ok(mut slot) = state.pid.lock() {
+            *slot = Some(child.id());
+        }
+    }
+
+    if let Some(stderr) = child.stderr.take() {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let _ = handle.emit("engine-log", format!("[stderr] {line}"));
+            }
+        });
+    }
+
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        if let Some(stdout) = child.stdout.take() {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<serde_json::Value>(&line) {
+                    Ok(value) => {
+                        let _ = handle.emit("engine-event", value);
+                    }
+                    Err(_) => {
+                        let _ = handle.emit("engine-log", line);
+                    }
+                }
+            }
+        }
+        let _ = child.wait();
+        let _ = handle.emit("engine-exit", ());
+    });
+
+    let _ = app.emit("job-start", serde_json::json!({ "arxiv_id": name, "mode": "pdf" }));
+    Ok(())
+}
+
 #[tauri::command]
 fn rebuild_alignment(app: AppHandle, segments: String, pdf: String) -> Result<String, String> {
     let exe = engine_path(&app);
@@ -647,7 +744,8 @@ fn main() {
             search_text,
             translate_texts,
             delete_doc_files,
-            rebuild_alignment
+            rebuild_alignment,
+            start_pdf
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");

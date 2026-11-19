@@ -17,12 +17,16 @@ def token() -> str:
     raise SystemExit("no token")
 
 
+want = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 tok = token()
 h = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
-c = httpx.Client(headers=h, timeout=60)
-run = c.get("https://api.github.com/repos/cpypy/yijian/actions/runs?per_page=1").json()[
+c = httpx.Client(headers=h, timeout=60, follow_redirects=True)
+runs = c.get("https://api.github.com/repos/cpypy/yijian/actions/runs?per_page=30").json()[
     "workflow_runs"
-][0]
-print("run", run["run_number"], run["conclusion"])
+]
+run = next((r for r in runs if r["run_number"] == want), None)
+if not run:
+    raise SystemExit("run not found")
+print("run", run["run_number"], run["conclusion"], run["head_branch"])
 resp = c.post(f"https://api.github.com/repos/cpypy/yijian/actions/runs/{run['id']}/rerun")
-print("rerun", resp.status_code, resp.text[:200])
+print("rerun", resp.status_code)

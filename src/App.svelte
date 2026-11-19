@@ -738,6 +738,43 @@
     }
   }
 
+  async function onPickPdf(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    if (!configured) {
+      savedTip = "请先在设置里填 API Key";
+      setTimeout(() => (savedTip = ""), 2000);
+      showSettings = true;
+      return;
+    }
+    pushLog(`读取 ${file.name}（${(file.size / 1024 / 1024).toFixed(1)} MB）…`);
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    const data = dataUrl.split(",")[1] ?? "";
+    running = true;
+    progress = 0;
+    stage = "parse";
+    logs = [];
+    pdf = "";
+    enPdf = "";
+    segments = [];
+    align = {};
+    view = "work";
+    nav = "work";
+    try {
+      await invoke("start_pdf", { name: file.name, data });
+    } catch (e) {
+      running = false;
+      pushLog(String(e));
+    }
+  }
+
   async function cancel() {
     try {
       await invoke("cancel_run");
@@ -1146,6 +1183,10 @@
         on:keydown={(e) => e.key === "Enter" && start()}
       />
       <button class="primary" on:click={start}>{running ? "加入队列" : "开始"}</button>
+      <label class="ghost uploadbtn" title="选择一个本地 PDF，按原版式翻译">
+        上传 PDF
+        <input type="file" accept="application/pdf" on:change={onPickPdf} />
+      </label>
       {#if running}
         <button class="ghost" on:click={cancel}>取消</button>
       {/if}

@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 """sidecar 打包：单文件 exe，内置 tetonic 与 texlate。"""
 
 import os
@@ -14,7 +14,8 @@ TECTONIC_NAME = "tectonic.exe" if os.name == "nt" else "tectonic"
 
 datas = []
 binaries = []
-hiddenimports = []
+hiddenimports = [
+    'pdf_translate',]
 
 for pkg in (
     "texlate",

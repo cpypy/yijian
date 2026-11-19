@@ -1,4 +1,4 @@
-"""译见引擎 sidecar。
+﻿"""译见引擎 sidecar。
 
 被 Tauri 壳以子进程方式拉起，参数 `--run <arxiv_id>`，
 在 stdout 上逐行输出 JSON 事件，由 Rust 侧转发给前端。
@@ -928,6 +928,12 @@ def translate_texts(path: str) -> int:
 
 
 def main() -> int:
+    if len(sys.argv) > 3 and sys.argv[1] == "--pdf":
+        _patch_texlate()
+        from pdf_translate import run_pdf
+
+        return run_pdf(sys.argv[2], sys.argv[3], emit)
+
     # Windows 上 stdout 默认是 GBK，热榜里的 ö 会直接抛 UnicodeEncodeError
     for stream in (sys.stdout, sys.stderr):
         try:
